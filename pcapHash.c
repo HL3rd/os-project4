@@ -40,10 +40,14 @@ void DumpAllPacketLengths (FILE *fp)
             printf("Packet length was %d\n", nPacketLength);
 
             /* Might not be a bad idea to pay attention to this return value */
-            fread(theData, 1, nPacketLength, fp);
-            
+            fread(theData, 1, nPacketLength, fp); //this is the packet.
+            //printf("packet contents: %c\n", theData);
         }
- 
+        for (int i = 0; i < nPacketLength; i++) {
+                printf("%hhx", theData[i]);
+            }
+            printf("\n");
+        /* This is the value we will want to eliminate the first 52 bytes of to then be hashed. */
         /* At this point, we have read the packet and are onto the next one */
     }
 }
