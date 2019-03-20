@@ -26,15 +26,17 @@ int main (int argc, char* argv[]) {
     int files = argc - 1;
 
     // Parse command line arguments
-    while ((c = getopt_long_only(argc, argv, ":level:thread:", long_options, &option_index)) != -1) {
+    while ((c = getopt_long_only(argc, argv, ":l:t:", long_options, &option_index)) != -1) {
         switch(c) {
 			case 'l':
                 level = atoi(optarg);
                 files = files - 2;
+                printf("level: %d\n", level);
                 break;
             case 't':
                 threads = atoi(optarg);
                 files = files - 2;
+                printf("threads: %d\n", threads);
                 break;
 		}
 	}
