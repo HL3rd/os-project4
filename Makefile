@@ -1,7 +1,7 @@
-all: pcapHash
+all: pcap
 
-pcapHash: pcapHash.o
-	gcc pcapHash.o -o pcapHash -lpthread
+pcap: pcapHash.o
+	gcc pcapHash.o -o pcap -lpthread
 
 pcapHash.o: pcapHash.c
 	gcc -Wall -g -c pcapHash.c -o pcapHash.o
