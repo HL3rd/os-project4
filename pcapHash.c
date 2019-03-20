@@ -12,7 +12,7 @@ void DumpAllPacketLengths (FILE *fp)
 {
     /* We are going to assume that fp is just after the global header */
     uint32_t     nPacketLength;
-    char         theData[2000];
+    char         theData[2400];
  
     while(!feof(fp)) {
         /* Skip the ts_sec field */
@@ -41,6 +41,7 @@ void DumpAllPacketLengths (FILE *fp)
  
             /* Might not be a bad idea to pay attention to this return value */
             fread(theData, 1, nPacketLength, fp);
+            
         }
  
         /* At this point, we have read the packet and are onto the next one */
