@@ -28,15 +28,19 @@ void DumpAllPacketLengths (FILE *fp)
         fseek(fp, 4, SEEK_CUR);
  
         /* Let’s do a sanity check before reading */
-        if(nPacketLength < 2000) {
+        if(nPacketLength < 128) {
+            printf("Skipping %d bytes ahead - packet is too small\n", nPacketLength);
+            fseek(fp, nPacketLength, SEEK_CUR);
+        }
+        else if (nPacketLength > 2400) {
+            printf("Skipping %d bytes ahead - packet is too big\n", nPacketLength);
+            fseek(fp, nPacketLength, SEEK_CUR);
+        }
+        else {
             printf("Packet length was %d\n", nPacketLength);
  
             /* Might not be a bad idea to pay attention to this return value */
             fread(theData, 1, nPacketLength, fp);
-        }
-        else {
-            printf("Skipping %d bytes ahead - packet is too big\n", nPacketLength);
-            fseek(fp, nPacketLength, SEEK_CUR);
         }
  
         /* At this point, we have read the packet and are onto the next one */
