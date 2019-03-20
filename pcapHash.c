@@ -13,7 +13,6 @@ void DumpAllPacketLengths (FILE *fp)
     /* We are going to assume that fp is just after the global header */
     uint32_t     nPacketLength;
     char         theData[2000];
-    int count = 0;
  
     while(!feof(fp)) {
         /* Skip the ts_sec field */
@@ -36,10 +35,6 @@ void DumpAllPacketLengths (FILE *fp)
             fread(theData, 1, nPacketLength, fp);
         }
         else {
-            /*count += 1;
-            if (count == 20) {
-                break;
-            }   */ 
             printf("Skipping %d bytes ahead - packet is too big\n", nPacketLength);
             fseek(fp, nPacketLength, SEEK_CUR);
         }
