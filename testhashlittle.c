@@ -1,0 +1,67 @@
+#include <stdlib.h>
+#include <stdio.h>
+#include <errno.h>
+#include <string.h>
+#include <pthread.h>
+
+void DumpAllPacketLengths (FILE *fp)
+{
+    /* We are going to assume that fp is just after the global header */
+    uint32_t     nPacketLength;
+    char         theData[2400];
+
+    while(!feof(fp)) {
+        /* Skip the ts_sec field */
+        fseek(fp, 4, SEEK_CUR);
+
+        /* Skip the ts_usec field */
+        fseek(fp, 4, SEEK_CUR);
+
+        /* Read in the incl_len field */
+        fread(&nPacketLength, 4, 1, fp);
+
+        /* Skip the orig_len field */
+        fseek(fp, 4, SEEK_CUR);
+
+        /* Let’s do a sanity check before reading */
+        if(nPacketLength < 128) {
+            printf("Skipping %d bytes ahead - packet is too small\n", nPacketLength);
+            fseek(fp, nPacketLength, SEEK_CUR);
+        }
+        else if (nPacketLength > 2400) {
+            printf("Skipping %d bytes ahead - packet is too big\n", nPacketLength);
+            fseek(fp, nPacketLength, SEEK_CUR);
+        }
+        else {
+            printf("Packet length was %d\n", nPacketLength);
+
+            /* Might not be a bad idea to pay attention to this return value */
+            printf("theData: %s\n", theData);
+            fread(theData, 1, nPacketLength, fp);
+
+        }
+        /* At this point, we have read the packet and are onto the next one */
+    }
+}
+
+int main(int argc, char* argv[])
+{
+    FILE *fp;
+    fp = fopen("Dataset-Small.pcap", "r+");
+
+    /* Display the Magic Number and skip over the rest */
+
+    uint32_t   theMagicNum;
+
+    if(fread(&theMagicNum, 4, 1, fp) < 4) {
+      // There was an error
+    }
+
+    printf("Magic Number we don't care about was %X\n", theMagicNum);
+
+    /* Jump through the rest (aka the other 20 bytes) to get past the global header */
+    fseek(fp, 24, SEEK_CUR);
+
+    DumpAllPacketLengths(fp);
+
+}

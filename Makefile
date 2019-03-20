@@ -7,4 +7,4 @@ pcapHash.o: pcapHash.c
 	gcc -Wall -g -c pcapHash.c -o pcapHash.o
 
 clean:
-	rm -f pcapHash.o pcapHash
+	rm -f pcapHash.o pcap
