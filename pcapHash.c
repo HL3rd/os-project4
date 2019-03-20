@@ -13,6 +13,7 @@ void DumpAllPacketLengths (FILE *fp)
     /* We are going to assume that fp is just after the global header */
     uint32_t     nPacketLength;
     char         theData[2000];
+    int count = 0;
  
     while(!feof(fp)) {
         /* Skip the ts_sec field */
@@ -28,13 +29,17 @@ void DumpAllPacketLengths (FILE *fp)
         fseek(fp, 4, SEEK_CUR);
  
         /* Let’s do a sanity check before reading */
-        if(nPacketLength > 2000) {
+        if(nPacketLength < 2000) {
             printf("Packet length was %d\n", nPacketLength);
  
             /* Might not be a bad idea to pay attention to this return value */
             fread(theData, 1, nPacketLength, fp);
         }
-        else {   
+        else {
+            /*count += 1;
+            if (count == 20) {
+                break;
+            }   */ 
             printf("Skipping %d bytes ahead - packet is too big\n", nPacketLength);
             fseek(fp, nPacketLength, SEEK_CUR);
         }
@@ -46,7 +51,7 @@ void DumpAllPacketLengths (FILE *fp)
 int main(int argc, char* argv[])
 {
     FILE *fp;
-    fp = fopen("Dataset-Small.pcap", "r");
+    fp = fopen("Dataset-Small.pcap", "r+");
 
     /* Display the Magic Number and skip over the rest */
  
