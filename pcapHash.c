@@ -11,7 +11,7 @@
 struct PacketHolder {
     int bIsValid;           // 0 if no, 1 if yes
     char byData[2400];      // The actual packet data
-    uint32 nHash;           // Hash of the packet contents
+    uint32_t nHash;           // Hash of the packet contents
 };
 
 void DumpAllPacketLengths (FILE *fp)
