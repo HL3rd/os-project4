@@ -13,6 +13,8 @@ void DumpAllPacketLengths (FILE *fp)
     /* We are going to assume that fp is just after the global header */
     uint32_t     nPacketLength;
     char         theData[2400];
+    char         theHashData[2348];
+    uint32_t     choppedPacketLength;
 
     while(!feof(fp)) {
         /* Skip the ts_sec field */
@@ -37,17 +39,30 @@ void DumpAllPacketLengths (FILE *fp)
             fseek(fp, nPacketLength, SEEK_CUR);
         }
         else {
-            printf("Packet length was %d\n", nPacketLength);
 
             /* Might not be a bad idea to pay attention to this return value */
             fread(theData, 1, nPacketLength, fp); //this is the packet.
-            //printf("packet contents: %c\n", theData);
-        }
-        for (int i = 0; i < nPacketLength; i++) {
+            printf("Packet length was %d\n", nPacketLength);
+            printf("Orignal Packet----------\n");
+            for (int i = 0; i < nPacketLength; i++) {
                 printf("%hhx", theData[i]);
             }
             printf("\n");
-        /* This is the value we will want to eliminate the first 52 bytes of to then be hashed. */
+            /* This is the value we will want to eliminate the first 52 bytes of to then be hashed. */
+            int j = 0;
+            choppedPacketLength = nPacketLength - 52;
+            for (int i = 52; i < nPacketLength; i++) {
+                theHashData[j] = theData[i];
+                j++;
+            }
+            printf("Chopped packet length was %d\n", choppedPacketLength);
+            printf("Chopped Packet----------\n");
+            for (int i = 0; i < choppedPacketLength; i++) {
+                printf("%hhx", theHashData[i]);
+            }
+            printf("\n");
+
+        }
         /* At this point, we have read the packet and are onto the next one */
     }
 }
