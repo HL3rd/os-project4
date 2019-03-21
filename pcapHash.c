@@ -8,6 +8,12 @@
 #include <string.h>
 #include <pthread.h>
 
+struct PacketHolder {
+    int bIsValid;           // 0 if no, 1 if yes
+    char byData[2400];      // The actual packet data
+    uint32 nHash;           // Hash of the packet contents
+};
+
 void DumpAllPacketLengths (FILE *fp)
 {
     /* We are going to assume that fp is just after the global header */
@@ -42,6 +48,7 @@ void DumpAllPacketLengths (FILE *fp)
 
             /* Might not be a bad idea to pay attention to this return value */
             fread(theData, 1, nPacketLength, fp); //this is the packet.
+
             printf("Packet length was %d\n", nPacketLength);
             printf("Orignal Packet----------\n");
             for (int i = 0; i < nPacketLength; i++) {
@@ -63,8 +70,16 @@ void DumpAllPacketLengths (FILE *fp)
             printf("\n");
 
         }
+
         /* At this point, we have read the packet and are onto the next one */
     }
+}
+
+char checkPacketsForDuplicates() {
+
+    struct PacketHolder g_MyBigTable[30000];
+
+
 }
 
 int main(int argc, char* argv[])
@@ -86,5 +101,5 @@ int main(int argc, char* argv[])
     fseek(fp, 24, SEEK_CUR);
 
     DumpAllPacketLengths(fp);
-    
+
 }
