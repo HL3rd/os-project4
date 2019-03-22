@@ -12,11 +12,12 @@
 int globalCt = 0; // keeps track of redundant values
 int totalCt = 0; // keeps track of all packets
 
-void checkPacketsForDuplicates(char* theHashData) {
+void checkPacketsForDuplicates(unsigned char theHashData[]) {
 
     printf("hola\n");
     struct PacketHolder g_MyBigTable[30000];
-    uint32_t theHash = hashlittle(theHashData, sizeof(theHashData), 4);
+    char* data = (char*)theHashData;
+    uint32_t theHash = hashlittle(data, sizeof(data), 4);
     uint32_t moddedHash = theHash % 30000;
 
     struct PacketHolder packet = g_MyBigTable[moddedHash];
@@ -36,8 +37,8 @@ void DumpAllPacketLengths (FILE *fp)
 {
     /* We are going to assume that fp is just after the global header */
     uint32_t     nPacketLength;
-    char         theData[2400];
-    char         theHashData[2348];
+    unsigned char         theData[2400];
+    unsigned char         theHashData[2348];
     uint32_t     choppedPacketLength;
 
     while(!feof(fp)) {
@@ -86,9 +87,8 @@ void DumpAllPacketLengths (FILE *fp)
                 printf("%hhx", theHashData[i]);
             }
             printf("\n");
-            printf("here\n");
-            char* data = &theHashData[0];
-            checkPacketsForDuplicates(data);
+
+            checkPacketsForDuplicates(theHashData);
         }
         /* At this point, we have read the packet and are onto the next one */
         totalCt += 1;
