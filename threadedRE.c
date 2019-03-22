@@ -54,10 +54,5 @@ int main (int argc, char* argv[]) {
     for (i = 0; i < files; i++) {
         filenames[i] = argv[argc-files + i];
     }
-
-    uint32_t initvalue = 4; // value used for calculating hash
-    char* test = "bailey";
-    uint32_t rtnval = hashlittle(test, sizeof(test), initvalue);
-    printf("hash: %d\n", rtnval);
     
 }
