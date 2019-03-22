@@ -7,12 +7,9 @@
 #include <errno.h>
 #include <string.h>
 #include <pthread.h>
+#include "functions.h"
 
-struct PacketHolder {
-    int bIsValid;           // 0 if no, 1 if yes
-    char byData[2400];      // The actual packet data
-    uint32_t nHash;           // Hash of the packet contents
-};
+int globalCt = 0;
 
 void DumpAllPacketLengths (FILE *fp)
 {
@@ -68,18 +65,33 @@ void DumpAllPacketLengths (FILE *fp)
                 printf("%hhx", theHashData[i]);
             }
             printf("\n");
-
+            checkPacketsForDuplicates(theHashData);
         }
 
         /* At this point, we have read the packet and are onto the next one */
     }
 }
 
-char checkPacketsForDuplicates() {
+char checkPacketsForDuplicates(char* theHashData) {
 
     struct PacketHolder g_MyBigTable[30000];
 
+    unit32_t theHash = hashlittle(theHashData, sizeof(theHashData), 4);
+    unit32_t moddedHash = theHash % 30000;
 
+    PacketHolder packet = g_MyBigTable[moddedHash];
+
+    if (packet.bIsValid == 1) {
+        if (memcmp(theHashData, packet.byData)) {
+            globalCt += 1;
+        } else {
+            // TODO: Collison handeling??
+            // Replace with new data?
+            
+        }
+    } else {
+        packet.bIsValid = 1;
+    }
 }
 
 int main(int argc, char* argv[])

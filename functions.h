@@ -46,6 +46,11 @@
   c -= b;  c ^= rot(b, 4);  b += a; \
 }
 
+struct PacketHolder {
+    int bIsValid;           // 0 if no, 1 if yes
+    char byData[2400];      // The actual packet data
+    uint32_t nHash;           // Hash of the packet contents
+};
 
 // hash function taken from the lookup3.c file
 uint32_t hashlittle( const void *key, size_t length, uint32_t initval)
@@ -72,7 +77,7 @@ uint32_t hashlittle( const void *key, size_t length, uint32_t initval)
     }
 
     /*----------------------------- handle the last (probably partial) block */
-    /* 
+    /*
      * "k[2]&0xffffff" actually reads beyond the end of the string, but
      * then masks off the part it's not allowed to read.  Because the
      * string is aligned, the masked-off tail is in the same word as the
