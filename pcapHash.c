@@ -11,6 +11,28 @@
 
 int globalCt = 0;
 
+void checkPacketsForDuplicates(char* theHashData) {
+
+    struct PacketHolder g_MyBigTable[30000];
+
+    uint32_t theHash = hashlittle(theHashData, sizeof(theHashData), 4);
+    uint32_t moddedHash = theHash % 30000;
+
+    struct PacketHolder packet = g_MyBigTable[moddedHash];
+
+    if (packet.bIsValid == 1) {
+        if (memcmp(theHashData, packet.byData, sizeof(packet.byData))) {
+            globalCt += 1;
+        } else {
+            // TODO: Collison handling??
+            // Replace with new data?
+            
+        }
+    } else {
+        packet.bIsValid = 1;
+    }
+}
+
 void DumpAllPacketLengths (FILE *fp)
 {
     /* We are going to assume that fp is just after the global header */
@@ -69,28 +91,6 @@ void DumpAllPacketLengths (FILE *fp)
         }
 
         /* At this point, we have read the packet and are onto the next one */
-    }
-}
-
-char checkPacketsForDuplicates(char* theHashData) {
-
-    struct PacketHolder g_MyBigTable[30000];
-
-    unit32_t theHash = hashlittle(theHashData, sizeof(theHashData), 4);
-    unit32_t moddedHash = theHash % 30000;
-
-    PacketHolder packet = g_MyBigTable[moddedHash];
-
-    if (packet.bIsValid == 1) {
-        if (memcmp(theHashData, packet.byData)) {
-            globalCt += 1;
-        } else {
-            // TODO: Collison handeling??
-            // Replace with new data?
-            
-        }
-    } else {
-        packet.bIsValid = 1;
     }
 }
 
