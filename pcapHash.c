@@ -9,24 +9,23 @@
 #include <pthread.h>
 #include "functions.h"
 
-int globalCt = 0;
+int globalCt = 0; // keeps track of redundant values
+int totalCt = 0; // keeps track of all packets
 
 void checkPacketsForDuplicates(char* theHashData) {
 
+    printf("hola\n");
     struct PacketHolder g_MyBigTable[30000];
-
     uint32_t theHash = hashlittle(theHashData, sizeof(theHashData), 4);
     uint32_t moddedHash = theHash % 30000;
 
     struct PacketHolder packet = g_MyBigTable[moddedHash];
-
     if (packet.bIsValid == 1) {
         if (memcmp(theHashData, packet.byData, sizeof(packet.byData))) {
             globalCt += 1;
         } else {
-            // TODO: Collison handling??
-            // Replace with new data?
-            
+            // Replace existing data with new data
+            sprintf(packet.byData, "%s", theHashData);
         }
     } else {
         packet.bIsValid = 1;
@@ -87,10 +86,12 @@ void DumpAllPacketLengths (FILE *fp)
                 printf("%hhx", theHashData[i]);
             }
             printf("\n");
-            checkPacketsForDuplicates(theHashData);
+            printf("here\n");
+            char* data = &theHashData[0];
+            checkPacketsForDuplicates(data);
         }
-
         /* At this point, we have read the packet and are onto the next one */
+        totalCt += 1;
     }
 }
 
@@ -114,4 +115,6 @@ int main(int argc, char* argv[])
 
     DumpAllPacketLengths(fp);
 
+    int percentage = globalCt / totalCt * 100;
+    printf("result: %d\n", percentage);
 }
