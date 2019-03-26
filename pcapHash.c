@@ -17,7 +17,7 @@ struct Node* g_MyBigTable[30000]; // this is our hash table
 
 double checkPacketsForDuplicates(struct PacketHolder packet) {
 
-    uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1);
+    uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
     uint32_t bucket = theHash % 30000;
 
     packet.nHash = theHash;
@@ -26,29 +26,28 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
 
     // check if the "bucket" contains an element
     if (g_MyBigTable[bucket]) {
-        struct Node* head = g_MyBigTable[bucket];
+        struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
         int matchFound = 0; // keeps track of whether a match is found in the bucket
         // check if there is perfect match
-        if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {
+        if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { //match is found, needed if list only contains one item.
             duplicateBytes = packet.bytes;
             matchFound = 1;
         }
-        while (g_MyBigTable[bucket]->next != NULL) {
+        while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
             g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
-            // There's a match
-            if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {
+            if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { //match is found
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
-                break;
+                break; //we have found a match and can return
             }
         }
-        // No match: add packet to the bucket
+        // No match: add packet to the linked list
         if (matchFound == 0) {
             struct Node *newNode = malloc(sizeof(struct Node));
             newNode->next = NULL;
             newNode->p = packet;
             g_MyBigTable[bucket]->next = newNode;
-            g_MyBigTable[bucket] = head;  
+            g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
         }     
     }
     // Bucket is empty: add packet to the bucket
@@ -66,10 +65,6 @@ void DumpAllPacketLengths (FILE *fp)
 {
     // We are going to assume that fp is just after the global header 
     uint32_t     nPacketLength;
-    // unsigned char         theData[2400];
-    // unsigned char         theHashData[2348];
-    // uint32_t     choppedPacketLength;
-    
 
     while(!feof(fp)) {
         /* Skip the ts_sec field */
@@ -80,24 +75,18 @@ void DumpAllPacketLengths (FILE *fp)
 
         /* Read in the incl_len field */
         fread(&nPacketLength, 4, 1, fp);
-        //printf("%d", nPacketLength);
 
         /* Skip the orig_len field */
         fseek(fp, 4, SEEK_CUR);
 
-        /* Let’s do a sanity check before reading */
-        if(nPacketLength < 128) {
-            // printf("Skipping %d bytes ahead - packet is too small\n", nPacketLength);
+        /* Check to see if packets are in range */
+        if(nPacketLength < 128) { //packet is too small
             fseek(fp, nPacketLength, SEEK_CUR);
         }
-        else if (nPacketLength > 2400) {
-            // printf("Skipping %d bytes ahead - packet is too big\n", nPacketLength);
+        else if (nPacketLength > 2400) { //packet is too big
             fseek(fp, nPacketLength, SEEK_CUR);
         }
         else {
-            // printf("Packet was a good size.\n");
-            /* Might not be a bad idea to pay attention to this return value */
-            
             // skip the first 52 bytes of data
             fseek(fp, 52, SEEK_CUR);
 
@@ -107,14 +96,13 @@ void DumpAllPacketLengths (FILE *fp)
             size_t bytesRead = fread(packetHolder.byData, 1, nPacketLength - 52, fp); //this is the packet.
             packetHolder.bytes = bytesRead;
 
-            // update global counter
+            // update global byte count
             totalBytes += bytesRead;
 
             size_t duplicateBytes = checkPacketsForDuplicates(packetHolder);
             totalDuplicateBytes += duplicateBytes;
         }
         // At this point, we have read the packet and are onto the next one 
-        //totalCt += 1;
     }
 }
 
@@ -177,8 +165,6 @@ int main(int argc, char* argv[])
         if(fread(&theMagicNum, 4, 1, fp) < 4) {
         // There was an error
         }
-
-        // printf("Magic Number was %X\n", theMagicNum);
 
         /* Jump through the rest (aka the other 20 bytes) to get past the global header */
         fseek(fp, 24, SEEK_CUR);
