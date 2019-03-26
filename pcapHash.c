@@ -13,26 +13,47 @@
 
 double totalBytes = 0; // keeps track of all bytes
 double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
-struct PacketHolder g_MyBigTable[30000];
+struct Node* g_MyBigTable[30000]; // this is our hash table
 
-double checkPacketsForDuplicates(struct PacketHolder p) {
+double checkPacketsForDuplicates(struct PacketHolder packet) {
 
-    uint32_t theHash = hashlittle(p.byData, p.bytes, 1);
+    uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1);
     uint32_t bucket = theHash % 30000;
 
-    p.nHash = theHash;
+    packet.nHash = theHash;
 
     double duplicateBytes = 0;
 
-    // Our data matches that in the table
-    if (g_MyBigTable[bucket].bIsValid && memcmp(g_MyBigTable[bucket].byData, p.byData, p.bytes) == 0) {
-        // printf("Cache Hit\n\n\n");
-        duplicateBytes = p.bytes;
-    // Evict and add new data
-    } else {
-        g_MyBigTable[bucket] = p;
-        g_MyBigTable[bucket].bIsValid = 1;
+    // check if the "bucket" contains an element
+    if (g_MyBigTable[bucket]) {
+        struct Node* head = g_MyBigTable[bucket];
+        int matchFound = 0; // keeps track of whether a match is found in the bucket
+        // check if there is perfect match
+        while (g_MyBigTable[bucket]->next != NULL) {
+            // There's a match
+            if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {
+                duplicateBytes = packet.bytes;
+                matchFound = 1;
+                break;
+            }
+            g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+        }
+        // No match: add packet to the bucket
+        if (matchFound == 0) {
+            struct Node *newNode = malloc(sizeof(struct Node));
+            newNode->next = NULL;
+            newNode->p = packet;
+            g_MyBigTable[bucket]->next = newNode;
+            g_MyBigTable[bucket] = head;  
+        }     
     }
+    // Bucket is empty: add packet to the bucket
+    else {
+        struct Node *newNode = malloc(sizeof(struct Node));
+        newNode->next = NULL;
+        newNode->p = packet;
+        g_MyBigTable[bucket] = newNode;
+    }    
 
     return duplicateBytes;
 }

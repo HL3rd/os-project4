@@ -53,6 +53,11 @@ struct PacketHolder {
     size_t bytes;           // number of bytes read
 };
 
+struct Node { 
+  struct PacketHolder p;
+  struct Node *next; 
+}; 
+
 // hash function taken from the lookup3.c file
 uint32_t hashlittle( const void *key, size_t length, uint32_t initval)
 {
