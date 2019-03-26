@@ -26,21 +26,26 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
 
     // check if the "bucket" contains an element
     if (g_MyBigTable[bucket]) {
+
         struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
         int matchFound = 0; // keeps track of whether a match is found in the bucket
+       
         // check if there is perfect match
-        if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { //match is found, needed if list only contains one item.
+        if (g_MyBigTable[bucket]->p.nHash == packet.nHash) {  
             duplicateBytes = packet.bytes;
             matchFound = 1;
         }
         while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
             g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
-            if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { //match is found
+            
+            // match is found
+            if (g_MyBigTable[bucket]->p.nHash == packet.nHash) { 
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
                 break; //we have found a match and can return
             }
         }
+
         // No match: add packet to the linked list
         if (matchFound == 0) {
             struct Node *newNode = malloc(sizeof(struct Node));
@@ -50,6 +55,7 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
             g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
         }     
     }
+    
     // Bucket is empty: add packet to the bucket
     else {
         struct Node *newNode = malloc(sizeof(struct Node));

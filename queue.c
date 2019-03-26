@@ -11,13 +11,13 @@
 /* Producer/Consumer code found in OS textbook, chapter 30 page 12. */
 /* Based on section 29.3 in chapter 29, it seems like just using this is fine */
 
-#define MAX //TODO: define MAX
+#define MAX 4096 //TODO: define MAX
 
 int buffer[MAX];
 int fill_ptr = 0;
 int use_ptr = 0;
 int count = 0;
-int loops; // TODO: set value of loops
+int loops = 2; // TODO: set value of loops
 
 void put(int value) {
     buffer[fill_ptr] = value;
