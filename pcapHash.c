@@ -29,6 +29,7 @@ double checkPacketsForDuplicates(struct PacketHolder p) {
     // Evict and add new data
     } else {
         g_MyBigTable[bucket] = p;
+        g_MyBigTable[bucket].bIsValid = 1;
     }
 
     return duplicateBytes;
@@ -67,7 +68,7 @@ void DumpAllPacketLengths (FILE *fp)
             fseek(fp, nPacketLength, SEEK_CUR);
         }
         else {
-            //printf("HEY\n\n\n");
+            printf("Packet was a good size.\n");
             /* Might not be a bad idea to pay attention to this return value */
             
             // skip the first 52 bytes of data
@@ -76,34 +77,11 @@ void DumpAllPacketLengths (FILE *fp)
             struct PacketHolder packetHolder;
 
             // read in the data directly into the packet holder
-            size_t bytesRead = fread(packetHolder.byData, nPacketLength - 52, 1, fp); //this is the packet.
+            size_t bytesRead = fread(packetHolder.byData, 1, nPacketLength - 52, fp); //this is the packet.
             packetHolder.bytes = bytesRead;
-            packetHolder.bIsValid = 1;
 
             // update global counter
             totalBytes += bytesRead;
-
-        /* Bailey's code
-            // printf("Packet length was %d\n", nPacketLength);
-            printf("Orignal Packet----------\n");
-            for (int i = 0; i < nPacketLength; i++) {
-                printf("%hhx", theData[i]);
-            }
-            printf("\n");
-            // This is the value we will want to eliminate the first 52 bytes of to then be hashed.
-            int j = 0;
-            choppedPacketLength = nPacketLength - 52;
-            for (int i = 52; i < nPacketLength; i++) {
-                theHashData[j] = theData[i];
-                j++;
-            }
-            printf("Chopped packet length was %d\n", choppedPacketLength);
-            printf("Chopped Packet----------\n");
-            for (int i = 0; i < choppedPacketLength; i++) {
-                printf("%hhx", theHashData[i]);
-            }
-            printf("\n");
-        */
 
             size_t duplicateBytes = checkPacketsForDuplicates(packetHolder);
             totalDuplicateBytes += duplicateBytes;
@@ -136,6 +114,6 @@ int main(int argc, char* argv[])
     printf("totalBytes: %f\n", totalBytes);
     printf("DuplicateBytes: %f\n", totalDuplicateBytes);
 
-    double percentage = (double)totalDuplicateBytes / (double)totalBytes * 100;
+    double percentage = (totalDuplicateBytes / totalBytes) * 100;
     printf("result: %f\n", percentage);
 }
