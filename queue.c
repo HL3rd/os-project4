@@ -16,7 +16,7 @@ int buffer[MAX];
 int fill_ptr = 0;
 int use_ptr = 0;
 int count = 0;
-int loops; // TODO: set value of loops
+int loops; // TODO: set value of loops, should be number of files.
 
 void put(int value) {
     buffer[fill_ptr] = value;
@@ -34,9 +34,10 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 
-//We are supposed to essentially put all of our code into the producer and consumer
+//TODO: We are supposed to essentially put all of our code into the producer and consumer
 //threads. Producers read in packets and consumers check if they are in our
-//data structure.
+//data structure. We need to make sure we lock certain operations, such as 
+//doing things with our data structure.
 
 void *producer(void *arg) {
     int i;
@@ -45,6 +46,7 @@ void *producer(void *arg) {
         while (count == MAX) {
             pthread_cond_wait(&empty, &mutex);
         }
+        //TODO: read in input here
         put(i);
         pthread_cond_signal(&fill);
         pthread_mutex_unlock(&mutex);
@@ -59,6 +61,7 @@ void *consumer(void *arg) {
             pthread_cond_wait(&fill, &mutex);
         }
         int tmp = get();
+        //TODO: tmp contains our packet. Perform duplicate check here.
         pthread_cond_signal(&empty);
         pthread_mutex_unlock(&mutex);
     }

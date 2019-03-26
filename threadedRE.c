@@ -18,8 +18,10 @@ int cacheHits = 0;
 
 //TODO: we now have to keep track of the size of our data structure ourselves to
 //make sure it doesn't go above 64MB. If it does, then we have to start
-//evicting items from our cache. Our linked lists are going to increase the size
+//evicting items from our cache using a FIFO method. Our linked lists are going to increase the size
 //of the structure.
+
+//
 
 double checkPacketsForDuplicates(struct PacketHolder packet) {
 
