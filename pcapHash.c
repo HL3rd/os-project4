@@ -29,14 +29,18 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
         struct Node* head = g_MyBigTable[bucket];
         int matchFound = 0; // keeps track of whether a match is found in the bucket
         // check if there is perfect match
+        if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {
+            duplicateBytes = packet.bytes;
+            matchFound = 1;
+        }
         while (g_MyBigTable[bucket]->next != NULL) {
+            g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
             // There's a match
             if (memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
                 break;
             }
-            g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
         }
         // No match: add packet to the bucket
         if (matchFound == 0) {
