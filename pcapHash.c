@@ -9,37 +9,39 @@
 #include <pthread.h>
 #include "functions.h"
 
-int globalCt = 0; // keeps track of redundant values
-int totalCt = 0; // keeps track of all packets
+double totalBytes = 0; // keeps track of all bytes
+double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
+struct PacketHolder g_MyBigTable[30000];
 
-void checkPacketsForDuplicates(unsigned char theHashData[]) {
+double checkPacketsForDuplicates(struct PacketHolder p) {
 
-    printf("hola\n");
-    struct PacketHolder g_MyBigTable[30000];
-    char* data = (char*)theHashData;
-    uint32_t theHash = hashlittle(data, sizeof(data), 4);
-    uint32_t moddedHash = theHash % 30000;
+    uint32_t theHash = hashlittle(p.byData, p.bytes, 1);
+    uint32_t bucket = theHash % 30000;
 
-    struct PacketHolder packet = g_MyBigTable[moddedHash];
-    if (packet.bIsValid == 1) {
-        if (memcmp(theHashData, packet.byData, sizeof(packet.byData))) {
-            globalCt += 1;
-        } else {
-            // Replace existing data with new data
-            sprintf(packet.byData, "%s", theHashData);
-        }
+    p.nHash = theHash;
+
+    double duplicateBytes = 0;
+
+    // Our data matches that in the table
+    if (g_MyBigTable[bucket].bIsValid && memcmp(g_MyBigTable[bucket].byData, p.byData, p.bytes)) {
+        printf("Cache Hit\n\n\n");
+        duplicateBytes = p.bytes;
+    // Evict and add new data
     } else {
-        packet.bIsValid = 1;
+        g_MyBigTable[bucket] = p;
     }
+
+    return duplicateBytes;
 }
 
 void DumpAllPacketLengths (FILE *fp)
 {
-    /* We are going to assume that fp is just after the global header */
+    // We are going to assume that fp is just after the global header 
     uint32_t     nPacketLength;
-    unsigned char         theData[2400];
-    unsigned char         theHashData[2348];
-    uint32_t     choppedPacketLength;
+    // unsigned char         theData[2400];
+    // unsigned char         theHashData[2348];
+    // uint32_t     choppedPacketLength;
+    
 
     while(!feof(fp)) {
         /* Skip the ts_sec field */
@@ -50,6 +52,7 @@ void DumpAllPacketLengths (FILE *fp)
 
         /* Read in the incl_len field */
         fread(&nPacketLength, 4, 1, fp);
+        //printf("%d", nPacketLength);
 
         /* Skip the orig_len field */
         fseek(fp, 4, SEEK_CUR);
@@ -64,17 +67,30 @@ void DumpAllPacketLengths (FILE *fp)
             fseek(fp, nPacketLength, SEEK_CUR);
         }
         else {
-
+            //printf("HEY\n\n\n");
             /* Might not be a bad idea to pay attention to this return value */
-            fread(theData, 1, nPacketLength, fp); //this is the packet.
+            
+            // skip the first 52 bytes of data
+            fseek(fp, 52, SEEK_CUR);
 
-            printf("Packet length was %d\n", nPacketLength);
+            struct PacketHolder packetHolder;
+
+            // read in the data directly into the packet holder
+            size_t bytesRead = fread(packetHolder.byData, nPacketLength - 52, 1, fp); //this is the packet.
+            packetHolder.bytes = bytesRead;
+            packetHolder.bIsValid = 1;
+
+            // update global counter
+            totalBytes += bytesRead;
+
+        /* Bailey's code
+            // printf("Packet length was %d\n", nPacketLength);
             printf("Orignal Packet----------\n");
             for (int i = 0; i < nPacketLength; i++) {
                 printf("%hhx", theData[i]);
             }
             printf("\n");
-            /* This is the value we will want to eliminate the first 52 bytes of to then be hashed. */
+            // This is the value we will want to eliminate the first 52 bytes of to then be hashed.
             int j = 0;
             choppedPacketLength = nPacketLength - 52;
             for (int i = 52; i < nPacketLength; i++) {
@@ -87,11 +103,13 @@ void DumpAllPacketLengths (FILE *fp)
                 printf("%hhx", theHashData[i]);
             }
             printf("\n");
+        */
 
-            checkPacketsForDuplicates(theHashData);
+            size_t duplicateBytes = checkPacketsForDuplicates(packetHolder);
+            totalDuplicateBytes += duplicateBytes;
         }
-        /* At this point, we have read the packet and are onto the next one */
-        totalCt += 1;
+        // At this point, we have read the packet and are onto the next one 
+        //totalCt += 1;
     }
 }
 
@@ -115,6 +133,9 @@ int main(int argc, char* argv[])
 
     DumpAllPacketLengths(fp);
 
-    int percentage = globalCt / totalCt * 100;
-    printf("result: %d\n", percentage);
+    printf("totalBytes: %f\n", totalBytes);
+    printf("DuplicateBytes: %f\n", totalDuplicateBytes);
+
+    double percentage = (double)totalDuplicateBytes / (double)totalBytes * 100;
+    printf("result: %f\n", percentage);
 }

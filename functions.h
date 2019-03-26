@@ -50,6 +50,7 @@ struct PacketHolder {
     int bIsValid;           // 0 if no, 1 if yes
     char byData[2400];      // The actual packet data
     uint32_t nHash;           // Hash of the packet contents
+    size_t bytes;           // number of bytes read
 };
 
 // hash function taken from the lookup3.c file
