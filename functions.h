@@ -1,3 +1,8 @@
+// Ale Lopez, Bailey Blum, and Horacio Lopez
+// CSE34341 - Project 4
+// Due: 3/28/2019
+// Header file
+
 #include <time.h>       /* defines time_t for timings in the test */
 #include <stdint.h>     /* defines uint32_t etc */
 #include <sys/param.h>  /* attempt to define endianness */
@@ -53,12 +58,13 @@ struct PacketHolder {
     size_t bytes;           // number of bytes read
 };
 
+// struct implemented in our hash table 
 struct Node { 
   struct PacketHolder p;
   struct Node *next; 
 }; 
 
-// hash function taken from the lookup3.c file
+/* Hash function taken from the lookup3.c file */
 uint32_t hashlittle( const void *key, size_t length, uint32_t initval)
 {
   uint32_t a,b,c;                                          /* internal state */
