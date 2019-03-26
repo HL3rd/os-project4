@@ -14,6 +14,12 @@
 double totalBytes = 0; // keeps track of all bytes
 double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
+int cacheHits = 0;
+
+//TODO: we now have to keep track of the size of our data structure ourselves to
+//make sure it doesn't go above 64MB. If it does, then we have to start
+//evicting items from our cache. Our linked lists are going to increase the size
+//of the structure.
 
 double checkPacketsForDuplicates(struct PacketHolder packet) {
 
@@ -34,6 +40,7 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
         if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {  
             duplicateBytes = packet.bytes;
             matchFound = 1;
+            cacheHits += 1;
         }
         while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
             g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
@@ -42,6 +49,7 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
             if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { 
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
+                cacheHits += 1;
                 break; //we have found a match and can return
             }
         }
@@ -114,8 +122,8 @@ void DumpAllPacketLengths (FILE *fp)
 
 int main(int argc, char* argv[])
 {
-    int c;
-    int level = 2; // is no level if specified, we will run using Level 2
+    int c; //TODO: Change default level back to 2, default threads back to 2.
+    int level = 1; // is no level if specified, we will run using Level 2
     int threads = 2; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
@@ -157,7 +165,7 @@ int main(int argc, char* argv[])
     int i;
     for (i = 0; i < files; i++) {
         filenames[i] = argv[argc-files + i];
-        printf("file %d: %s\n", i, filenames[i]);
+        //printf("file %d: %s\n", i, filenames[i]);
     }
 
     for (i = 0; i < files; i++) {
@@ -175,14 +183,30 @@ int main(int argc, char* argv[])
         /* Jump through the rest (aka the other 20 bytes) to get past the global header */
         fseek(fp, 24, SEEK_CUR);
 
-        DumpAllPacketLengths(fp);   
+        if (level == 1) {
+            DumpAllPacketLengths(fp); //still need threading for this section
+        }
+        else if (level == 2) {
+
+        }
         
         fclose(fp);
     }
-
-    printf("totalBytes: %f\n", totalBytes);
-    printf("DuplicateBytes: %f\n", totalDuplicateBytes);
+    printf("Welcome to Project 4 - ThreadedRE by Dos Lopezes y un Gringo\n");
+    printf("Now operating in Level %d mode: ", level);
+    if (level == 1) {
+        printf("Full Payload Detection.\n");
+    }
+    else {
+        printf("Sub-Payload Matching.\n");
+    }
+    printf("Threads Allowed: %d\n", threads);
+    printf("Allocating %d thread to file I/O, %d threads to checking for redundancy.\n", 1, threads-1);
+    printf("Results:\n");
+    printf("%.2f MB processed.\n", (totalBytes/1000000));
+    //printf("DuplicateBytes: %f\n", totalDuplicateBytes);
+    printf("%d hits.\n", cacheHits);
 
     double percentage = (totalDuplicateBytes / totalBytes) * 100;
-    printf("result: %f\n", percentage);
+    printf("%.2f%% redundancy detected.\n", percentage);
 }
