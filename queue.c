@@ -11,13 +11,12 @@
 /* Producer/Consumer code found in OS textbook, chapter 30 page 12. */
 /* Based on section 29.3 in chapter 29, it seems like just using this is fine */
 
-#define MAX 4096 //TODO: define MAX
-
+#define MAX 4096//TODO: define MAX
 int buffer[MAX];
 int fill_ptr = 0;
 int use_ptr = 0;
 int count = 0;
-int loops = 2; // TODO: set value of loops
+int loops; // TODO: set value of loops
 
 void put(int value) {
     buffer[fill_ptr] = value;
@@ -31,11 +30,15 @@ int get() {
     count--;
     return tmp;
 }
+pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
+pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 
-cond_t empty, fill;
-mutex_t mutex;
+//We are supposed to essentially put all of our code into the producer and consumer
+//threads. Producers read in packets and consumers check if they are in our
+//data structure.
 
-void* producer(void *arg) {
+void *producer(void *arg) {
     int i;
     for (i = 0; i < loops; i++) {
         pthread_mutex_lock(&mutex);
@@ -48,7 +51,7 @@ void* producer(void *arg) {
     }
 }
 
-void* consumer(void *arg) {
+void *consumer(void *arg) {
     int i;
     for (i = 0; i < loops; i++) {
         pthread_mutex_lock(&mutex);
