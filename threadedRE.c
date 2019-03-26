@@ -31,7 +31,7 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
         int matchFound = 0; // keeps track of whether a match is found in the bucket
        
         // check if there is perfect match
-        if (g_MyBigTable[bucket]->p.nHash == packet.nHash) {  
+        if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {  
             duplicateBytes = packet.bytes;
             matchFound = 1;
         }
@@ -39,7 +39,7 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
             g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
             
             // match is found
-            if (g_MyBigTable[bucket]->p.nHash == packet.nHash) { 
+            if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { 
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
                 break; //we have found a match and can return
@@ -55,7 +55,7 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
             g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
         }     
     }
-    
+
     // Bucket is empty: add packet to the bucket
     else {
         struct Node *newNode = malloc(sizeof(struct Node));
