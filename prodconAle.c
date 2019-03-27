@@ -17,25 +17,80 @@ double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
 int cacheHits = 0;
 
-#define MAXSIZ 10000000//TODO: define MAX
-struct PacketHolder buffer[MAXSIZ];
-int fill_ptr = 0;
-int use_ptr = 0;
 int count = 0;
 int complete = 0;
 
-void put(struct PacketHolder packet) {
-    buffer[fill_ptr] = packet;
-    fill_ptr = (fill_ptr + 1) % MAXSIZ;
-    count++;
+typedef struct __node_t {
+    struct PacketHolder p;
+    struct __node_t *next;
+} node_t;
+
+typedef struct __queue_t {
+    node_t *head;
+    node_t *tail;
+    pthread_mutex_t headLock;
+    pthread_mutex_t tailLock;
+} queue_t;
+
+queue_t buffer;
+
+void queue_init(queue_t *q) {
+    node_t *tmp = malloc(sizeof(node_t));
+    tmp->next = NULL;
+    q->head = q->tail = tmp;
+    pthread_mutex_init(&q->headLock, NULL);
+    pthread_mutex_init(&q->tailLock, NULL);
 }
 
-struct PacketHolder get() {
-    struct PacketHolder tmp = buffer[use_ptr];
-    use_ptr = (use_ptr + 1) % MAXSIZ;
-    count--;
-    return tmp;
+void queue_push(queue_t *q, struct PacketHolder p) {
+    node_t *tmp = malloc(sizeof(node_t));
+    if (tmp != NULL) {
+        tmp->p = p;
+        tmp->next = NULL;
+    }
+    
+    pthread_mutex_lock(&q->tailLock);
+    q->tail->next = tmp;
+    q->tail = tmp;
+    pthread_mutex_unlock(&q->tailLock);
+    
 }
+
+int queue_pop(queue_t *q, struct PacketHolder *p) {
+    pthread_mutex_lock(&q->headLock);
+    node_t *tmp = q->head;
+    node_t *newHead = tmp->next;
+    if (newHead == NULL) {
+        pthread_mutex_unlock(&q->headLock);
+        return -1; // queue was empty
+    }
+    *p = newHead->p;
+    q->head = newHead;
+    pthread_mutex_unlock(&q->headLock);
+    free(tmp);
+    
+    return 0;
+}
+
+#define MAXSIZ 10000//TODO: define MAX
+
+// struct PacketHolder buffer[MAXSIZ];
+// int fill_ptr = 0;
+// int use_ptr = 0;
+
+
+// void put(struct PacketHolder packet) {
+//     buffer[fill_ptr] = packet;
+//     fill_ptr = (fill_ptr + 1) % MAXSIZ;
+//     count++;
+// }
+
+// struct PacketHolder get() {
+//     struct PacketHolder tmp = buffer[use_ptr];
+//     use_ptr = (use_ptr + 1) % MAXSIZ;
+//     count--;
+//     return tmp;
+// }
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
@@ -48,14 +103,14 @@ pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 void *producer(void *arg) {
     FILE *fp = arg;
     uint32_t     nPacketLength;
-    printf("inside producer\n");
+    // printf("inside producer\n");
     while(!feof(fp)) {
         complete = 0;
-        printf("producer acquired the lock\n");
+        // printf("producer acquired the lock\n");
         while (count == MAXSIZ) {
             pthread_cond_wait(&empty, &mutex);
         }
-        printf("producer received signal empty\n");
+        // printf("producer received signal empty\n");
         // We are going to assume that fp is just after the global header
 
         /* Skip the ts_sec field */
@@ -89,31 +144,29 @@ void *producer(void *arg) {
 
             // update global byte count
             totalBytes += bytesRead;
-            put(packetHolder);
-            printf("put packet in\n");
+            queue_push(&buffer, packetHolder);
+            count++;
+            // printf("put packet in\n");
             pthread_cond_signal(&fill);
-            printf("producer signaled fill\n");
+            // printf("producer signaled fill\n");
         }
-        printf("producer releasing lock\n");
+        // printf("producer releasing lock\n");
         pthread_mutex_unlock(&mutex);
     }
     complete = 1;
-    while (count > 0) {
-        pthread_cond_signal(&fill);
-    }
-    pthread_cond_broadcast(&fill);
     return 0;
 }
 
 void *consumer(void* arg) {
-    printf("inside consumer\n");
-    printf("complete = %d\n", complete);
+    // printf("inside consumer\n");
+    
     while(1) {
 
-        printf("inside complete loop in consumer\n");
-        printf("count= %d\n", count);
+        // printf("inside complete loop in consumer\n");
+        // printf("complete = %d\n", complete);
+        // printf("count= %d\n", count);
         pthread_mutex_lock(&mutex);
-        printf("consumer acquired the lock\n");
+        // printf("consumer acquired the lock\n");
 
         if (complete == 1 & count == 0) {
             pthread_mutex_unlock(&mutex);
@@ -122,9 +175,16 @@ void *consumer(void* arg) {
         while (count == 0) {
             pthread_cond_wait(&fill, &mutex);
         }
-        printf("consumer received signal fill\n");
-        struct PacketHolder packet = get();
-        printf("got package\n");
+        // printf("consumer received signal fill\n");
+        struct PacketHolder packet;
+        int retnval = queue_pop(&buffer, &packet);
+        count--;
+        if (complete == 1 && retnval == -1) {
+            // printf("empty queue and producer is done\n");
+            pthread_mutex_unlock(&mutex);
+            return 0;
+        }
+        // printf("got package\n");
         uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
         uint32_t bucket = theHash % 30000;
 
@@ -177,11 +237,12 @@ void *consumer(void* arg) {
         totalDuplicateBytes += duplicateBytes;
 
         pthread_cond_signal(&empty);
-        printf("consumer signaled empty\n");
-        printf("consumer releasing lock\n");
+        // printf("consumer signaled empty\n");
+        // printf("consumer releasing lock\n");
+        // printf("count= %d\n", count);
         pthread_mutex_unlock(&mutex);
     }
-    printf("consumer is leaving\n");
+    // printf("consumer is leaving\n");
     return 0;
 }
 
@@ -232,11 +293,12 @@ int main(int argc, char* argv[])
     int i;
     for (i = 0; i < files; i++) {
         filenames[i] = argv[argc-files + i];
-        //printf("file %d: %s\n", i, filenames[i]);
+        // printf("file %d: %s\n", i, filenames[i]);
     }
 
     //for loop for reading through each file
     for (i = 0; i < files; i++) {
+        queue_init(&buffer);
         FILE *fp;
         fp = fopen(filenames[i], "r+");
 
@@ -260,6 +322,11 @@ int main(int argc, char* argv[])
         for (int i = 0; i < threads - 1; i++) { //FOR loop to make consumer threads
             pthread_create(&consID[i], &attr, consumer, NULL);
         }
+
+        while (count > 0) {
+            pthread_cond_signal(&fill);
+        }
+
         pthread_join(prodID, NULL); //waits for producer thread to finish.
         for (int i = 0; i < threads - 1; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
