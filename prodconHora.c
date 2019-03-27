@@ -81,6 +81,8 @@ void *producer(void *arg) {
             // skip the first 52 bytes of data
             fseek(fp, 52, SEEK_CUR);
 
+            /* TODO: From now on, this packetHolder should not be the whole
+            payload of 52 to the end, it should be 64 bytes at a time */
             struct PacketHolder packetHolder;
 
             // read in the data directly into the packet holder
