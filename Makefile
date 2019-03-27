@@ -1,4 +1,4 @@
-all: threadedRE prodcon
+all: threadedRE prodconAle
 
 threadedRE: threadedRE.o
 	gcc threadedRE.o -o threadedRE -lpthread
@@ -6,12 +6,12 @@ threadedRE: threadedRE.o
 threadedRE.o: threadedRE.c
 	gcc -Wall -g -c threadedRE.c -o threadedRE.o
 
-prodcon: prodcon.o
-	gcc prodcon.o -o prodcon -lpthread
+prodconAle: prodconAle.o
+	gcc prodconAle.o -o prodconAle -lpthread
 
-prodcon.o: prodcon.c
-	gcc -Wall -g -c prodcon.c -o prodcon.o
+prodconAle.o: prodconAle.c
+	gcc -Wall -g -c prodconAle.c -o prodconAle.o
 
 clean:
 	rm -f threadedRE.o
-	rm -f prodcon.o
+	rm -f prodconAle.o
