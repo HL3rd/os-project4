@@ -17,25 +17,81 @@ double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
 int cacheHits = 0;
 
-#define MAXSIZ 10000000//TODO: define MAX
-struct PacketHolder buffer[MAXSIZ];
-int fill_ptr = 0;
-int use_ptr = 0;
 int count = 0;
 int complete = 0;
 
-void put(struct PacketHolder packet) {
-    buffer[fill_ptr] = packet;
-    fill_ptr = (fill_ptr + 1) % MAXSIZ;
-    count++;
+typedef struct __node_t {
+    struct PacketHolder p;
+    struct __node_t *next;
+} node_t;
+
+typedef struct __queue_t {
+    node_t *head;
+    node_t *tail;
+    pthread_mutex_t headLock;
+    pthread_mutex_t tailLock;
+} queue_t;
+
+queue_t buffer;
+
+void queue_init(queue_t *q) {
+    node_t *tmp = malloc(sizeof(node_t));
+    tmp->next = NULL;
+    q->head = q->tail = tmp;
+    pthread_mutex_init(&q->headLock, NULL);
+    pthread_mutex_init(&q->tailLock, NULL);
 }
 
-struct PacketHolder get() {
-    struct PacketHolder tmp = buffer[use_ptr];
-    use_ptr = (use_ptr + 1) % MAXSIZ;
-    count--;
-    return tmp;
+void queue_push(queue_t *q, struct PacketHolder p) {
+    node_t *tmp = malloc(sizeof(node_t));
+    if (tmp != NULL) {
+        tmp->p = p;
+        tmp->next = NULL;
+    }
+
+    pthread_mutex_lock(&q->tailLock);
+    q->tail->next = tmp;
+    q->tail = tmp;
+    pthread_mutex_unlock(&q->tailLock);
+
 }
+
+int queue_pop(queue_t *q, struct PacketHolder *p) {
+    pthread_mutex_lock(&q->headLock);
+    node_t *tmp = q->head;
+    node_t *newHead = tmp->next;
+    if (newHead == NULL) {
+        pthread_mutex_unlock(&q->headLock);
+        return -1; // queue was empty
+    }
+    *p = newHead->p;
+    q->head = newHead;
+    pthread_mutex_unlock(&q->headLock);
+    free(tmp);
+
+    return 0;
+}
+
+#define MAXSIZ 10000//TODO: define MAX
+#define RAND_DIVISOR 100000000
+
+// struct PacketHolder buffer[MAXSIZ];
+// int fill_ptr = 0;
+// int use_ptr = 0;
+
+
+// void put(struct PacketHolder packet) {
+//     buffer[fill_ptr] = packet;
+//     fill_ptr = (fill_ptr + 1) % MAXSIZ;
+//     count++;
+// }
+
+// struct PacketHolder get() {
+//     struct PacketHolder tmp = buffer[use_ptr];
+//     use_ptr = (use_ptr + 1) % MAXSIZ;
+//     count--;
+//     return tmp;
+// }
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
@@ -48,14 +104,14 @@ pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 void *producer(void *arg) {
     FILE *fp = arg;
     uint32_t     nPacketLength;
-    printf("inside producer\n");
     while(!feof(fp)) {
         complete = 0;
-        printf("producer acquired the lock\n");
+        // printf("producer acquired the lock\n");
         while (count == MAXSIZ) {
             pthread_cond_wait(&empty, &mutex);
         }
-        printf("producer received signal empty\n");
+        pthread_mutex_lock(&mutex);
+        // printf("producer received signal empty\n");
         // We are going to assume that fp is just after the global header
 
         /* Skip the ts_sec field */
@@ -81,39 +137,37 @@ void *producer(void *arg) {
             // skip the first 52 bytes of data
             fseek(fp, 52, SEEK_CUR);
 
-            /* TODO: From now on, this packetHolder should not be the whole
-            payload of 52 to the end, it should be 64 bytes at a time */
             struct PacketHolder packetHolder;
 
             // read in the data directly into the packet holder
+            // TODO: Come back to loop if needed
             size_t bytesRead = fread(packetHolder.byData, 1, 64, fp); //this is the packet.
             packetHolder.bytes = bytesRead;
+            printf("producer read %.2zu bytes\n", packetHolder.bytes);
 
             // update global byte count
             totalBytes += bytesRead;
-            put(packetHolder);
-            printf("put packet in\n");
+            queue_push(&buffer, packetHolder);
+            count++;
+            // printf("put packet in\n");
             pthread_cond_signal(&fill);
             printf("producer signaled fill\n");
         }
-        printf("producer releasing lock\n");
+        // printf("producer releasing lock\n");
+        // sleep(1);
+        // fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
     complete = 1;
-    while (count > 0) {
-        pthread_cond_signal(&fill);
-    }
-    pthread_cond_broadcast(&fill);
     return 0;
 }
 
 void *consumer(void* arg) {
-    printf("inside consumer\n");
-    printf("complete = %d\n", complete);
     while(1) {
 
-        printf("inside complete loop in consumer\n");
-        printf("count= %d\n", count);
+        // printf("inside complete loop in consumer\n");
+        // printf("complete = %d\n", complete);
+        // printf("count= %d\n", count);
         pthread_mutex_lock(&mutex);
         printf("consumer acquired the lock\n");
 
@@ -125,7 +179,14 @@ void *consumer(void* arg) {
             pthread_cond_wait(&fill, &mutex);
         }
         printf("consumer received signal fill\n");
-        struct PacketHolder packet = get();
+        struct PacketHolder packet;
+        int retnval = queue_pop(&buffer, &packet);
+        count--;
+        if (complete == 1 && retnval == -1) {
+            printf("empty queue and producer is done\n");
+            pthread_mutex_unlock(&mutex);
+            return 0;
+        }
         printf("got package\n");
         uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
         uint32_t bucket = theHash % 30000;
@@ -145,6 +206,7 @@ void *consumer(void* arg) {
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
                 cacheHits += 1;
+                // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes
             }
             while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
                 g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
@@ -154,6 +216,7 @@ void *consumer(void* arg) {
                     duplicateBytes = packet.bytes;
                     matchFound = 1;
                     cacheHits += 1;
+                    // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes
                     break; //we have found a match and can return
                 }
             }
@@ -163,7 +226,6 @@ void *consumer(void* arg) {
                 // here we want to check if totalDataByteCount < 64
                 struct Node *newNode = malloc(sizeof(struct Node));
                 // totalDataByteCount += sizeofStructNode
-                // totalDataByteCount should be global
                 newNode->next = NULL;
                 newNode->p = packet;
                 g_MyBigTable[bucket]->next = newNode;
@@ -172,7 +234,6 @@ void *consumer(void* arg) {
                 // g_MyBigTable[bucket] = g_MyBigTable[bucket]->next, THEN do the insertion
             }
         }
-
         // Bucket is empty: add packet to the bucket
         else {
             struct Node *newNode = malloc(sizeof(struct Node));
@@ -183,9 +244,12 @@ void *consumer(void* arg) {
 
         totalDuplicateBytes += duplicateBytes;
 
-        pthread_cond_signal(&empty);
-        printf("consumer signaled empty\n");
-        printf("consumer releasing lock\n");
+        // pthread_cond_signal(&empty);
+        //printf("consumer signaled empty\n");
+        // printf("consumer releasing lock\n");
+        //printf("count= %d\n", count);
+        //sleep(2);
+        // fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
     printf("consumer is leaving\n");
@@ -198,7 +262,7 @@ int main(int argc, char* argv[])
 {
     int c; //TODO: Change default level back to 2
     int level = 1; // is no level if specified, we will run using Level 2
-    int threads = 2; //TODO: specify a default value for threads
+    int threads = 3; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
 
@@ -225,8 +289,8 @@ int main(int argc, char* argv[])
                 files = files - 2;
                 printf("threads: %d\n", threads);
                 break;
-		    }
-	  }
+		}
+	}
 
     // Check number of threads
     if (threads < min_threads) {
@@ -239,10 +303,11 @@ int main(int argc, char* argv[])
     int i;
     for (i = 0; i < files; i++) {
         filenames[i] = argv[argc-files + i];
+        // printf("file %d: %s\n", i, filenames[i]);
     }
-
     //for loop for reading through each file
     for (i = 0; i < files; i++) {
+        queue_init(&buffer);
         FILE *fp;
         fp = fopen(filenames[i], "r+");
 
@@ -261,13 +326,16 @@ int main(int argc, char* argv[])
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_t prodID;
-        pthread_t consID[threads - 1];
+        pthread_t consID[threads];
         pthread_create(&prodID, &attr, producer, fp); //makes producer thread
-        for (int i = 0; i < threads - 1; i++) { //FOR loop to make consumer threads
+        int i;
+        for (i = 1; i < threads; i++) { //FOR loop to make consumer threads
             pthread_create(&consID[i], &attr, consumer, NULL);
         }
-        pthread_join(prodID, NULL); //waits for producer thread to finish.
-        for (int i = 0; i < threads - 1; i++) { //waits for consumer threads to finish.
+
+        // printf("hello\n");
+        pthread_join(prodID, NULL);
+        for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
         }
 
@@ -283,6 +351,8 @@ int main(int argc, char* argv[])
         fclose(fp);
     }
 
+    //int rnum = rand() / RAND_DIVISOR;
+    //sleep(rnum);
 
     //Output results
 

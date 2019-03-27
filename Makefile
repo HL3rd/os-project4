@@ -1,4 +1,4 @@
-all: threadedRE noThreaded
+all: threadedRE noThreaded prodconHora
 
 threadedRE: threadedRE.o
 	gcc threadedRE.o -o threadedRE -lpthread
@@ -12,6 +12,12 @@ noThreaded: noThreaded.o
 noThreaded.o: noThreaded.c
 	gcc -Wall -g -c noThreaded.c -o noThreaded.o
 
+prodconHora: prodconHora.o
+	gcc prodconHora.o -o prodconHora -lpthread
+
+prodconHora.o: prodconHora.c
+	gcc -Wall -g -c prodconHora.c -o prodconHora.o
+
 clean:
-	rm -f threadedRE.o
-	rm -f noThreaded.o
+	rm -f threadedRE.o noThreaded.o prodconHora.o
+	rm -f threadedRE noThreaded prodconHora
