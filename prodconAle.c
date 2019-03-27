@@ -73,6 +73,7 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
 }
 
 #define MAXSIZ 10000//TODO: define MAX
+#define RAND_DIVISOR 100000000
 
 // struct PacketHolder buffer[MAXSIZ];
 // int fill_ptr = 0;
@@ -103,13 +104,13 @@ pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 void *producer(void *arg) {
     FILE *fp = arg;
     uint32_t     nPacketLength;
-    // printf("inside producer\n");
     while(!feof(fp)) {
         complete = 0;
         // printf("producer acquired the lock\n");
         while (count == MAXSIZ) {
             pthread_cond_wait(&empty, &mutex);
         }
+        pthread_mutex_lock(&mutex);
         // printf("producer received signal empty\n");
         // We are going to assume that fp is just after the global header
 
@@ -151,6 +152,8 @@ void *producer(void *arg) {
             // printf("producer signaled fill\n");
         }
         // printf("producer releasing lock\n");
+        // sleep(1);
+        // fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
     complete = 1;
@@ -158,8 +161,6 @@ void *producer(void *arg) {
 }
 
 void *consumer(void* arg) {
-    // printf("inside consumer\n");
-    
     while(1) {
 
         // printf("inside complete loop in consumer\n");
@@ -236,13 +237,15 @@ void *consumer(void* arg) {
 
         totalDuplicateBytes += duplicateBytes;
 
-        pthread_cond_signal(&empty);
-        // printf("consumer signaled empty\n");
+        // pthread_cond_signal(&empty);
+        //printf("consumer signaled empty\n");
         // printf("consumer releasing lock\n");
-        // printf("count= %d\n", count);
+        //printf("count= %d\n", count);
+        //sleep(2);
+        // fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
-    // printf("consumer is leaving\n");
+    printf("consumer is leaving\n");
     return 0;
 }
 
@@ -252,7 +255,7 @@ int main(int argc, char* argv[])
 {
     int c; //TODO: Change default level back to 2
     int level = 1; // is no level if specified, we will run using Level 2
-    int threads = 2; //TODO: specify a default value for threads
+    int threads = 3; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
 
@@ -295,13 +298,12 @@ int main(int argc, char* argv[])
         filenames[i] = argv[argc-files + i];
         // printf("file %d: %s\n", i, filenames[i]);
     }
-
     //for loop for reading through each file
     for (i = 0; i < files; i++) {
         queue_init(&buffer);
         FILE *fp;
         fp = fopen(filenames[i], "r+");
-
+        
         /* Display the Magic Number and skip over the rest */
 
         uint32_t   theMagicNum;
@@ -317,20 +319,20 @@ int main(int argc, char* argv[])
         pthread_attr_t attr;
         pthread_attr_init(&attr);
         pthread_t prodID;
-        pthread_t consID[threads - 1];
+        pthread_t consID[threads];
         pthread_create(&prodID, &attr, producer, fp); //makes producer thread
-        for (int i = 0; i < threads - 1; i++) { //FOR loop to make consumer threads
+        int i;
+        for (i = 1; i < threads; i++) { //FOR loop to make consumer threads
             pthread_create(&consID[i], &attr, consumer, NULL);
-        }
-
-        while (count > 0) {
-            pthread_cond_signal(&fill);
-        }
-
-        pthread_join(prodID, NULL); //waits for producer thread to finish.
-        for (int i = 0; i < threads - 1; i++) { //waits for consumer threads to finish.
+        } 
+        
+        // printf("hello\n");
+        pthread_join(prodID, NULL);
+        for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
         }
+
+        // printf("goodbye\n");
 
         //TODO: Move levels to producer and consumer functions
         // if (level == 1) {
@@ -344,6 +346,8 @@ int main(int argc, char* argv[])
         fclose(fp);
     }
 
+    //int rnum = rand() / RAND_DIVISOR;
+    //sleep(rnum);
 
     //Output results
 
