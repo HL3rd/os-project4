@@ -17,22 +17,21 @@ double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
 int cacheHits = 0;
 
-#define MAX 4096//TODO: define MAX
-int buffer[MAX];
+#define MAXSIZ 10000000//TODO: define MAX
+struct PacketHolder buffer[MAXSIZ];
 int fill_ptr = 0;
 int use_ptr = 0;
 int count = 0;
-int loops; // TODO: set value of loops, should be number of files.
 
-void put(int value) {
-    buffer[fill_ptr] = value;
-    fill_ptr = (fill_ptr + 1) % MAX;
+void put(struct PacketHolder packet) {
+    buffer[fill_ptr] = packet;
+    fill_ptr = (fill_ptr + 1) % MAXSIZ;
     count++;
 }
 
-int get() {
-    int tmp = buffer[use_ptr];
-    use_ptr = (use_ptr + 1) % MAX;
+struct PacketHolder get() {
+    struct PacketHolder tmp = buffer[use_ptr];
+    use_ptr = (use_ptr + 1) % MAXSIZ;
     count--;
     return tmp;
 }
@@ -46,49 +45,62 @@ pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 //evicting items from our cache using a FIFO method. Our linked lists are going to increase the size
 //of the structure.
 
-//TODO: We are supposed to essentially put all of our code into the producer and consumer
-//threads. Producers read in packets and consumers check if they are in our
-//data structure. We need to make sure we lock certain operations, such as 
-//doing things with our data structure.
-
 void *producer(void *arg) {
-    int i;
-    for (i = 0; i < loops; i++) {
+    FILE *fp = arg;
+    uint32_t     nPacketLength;
+
+    while(!feof(fp)) {
         pthread_mutex_lock(&mutex);
-        while (count == MAX) {
+        while (count == MAXSIZ) {
             pthread_cond_wait(&empty, &mutex);
         }
-        //TODO: read in input here
-        put(i);
-        pthread_cond_signal(&fill);
-        pthread_mutex_unlock(&mutex);
-    }
-}
+        // We are going to assume that fp is just after the global header
 
-void *consumer(void *arg) {
-    int i;
-    for (i = 0; i < loops; i++) {
-        pthread_mutex_lock(&mutex);
-        while (count == 0) {
-            pthread_cond_wait(&fill, &mutex);
+        /* Skip the ts_sec field */
+        fseek(fp, 4, SEEK_CUR);
+
+        /* Skip the ts_usec field */
+        fseek(fp, 4, SEEK_CUR);
+
+        /* Read in the incl_len field */
+        fread(&nPacketLength, 4, 1, fp);
+
+        /* Skip the orig_len field */
+        fseek(fp, 4, SEEK_CUR);
+
+        /* Check to see if packets are in range */
+        if(nPacketLength < 128) { //packet is too small
+            fseek(fp, nPacketLength, SEEK_CUR);
         }
-        int tmp = get();
-        //TODO: tmp contains our packet. Perform duplicate check here.
-        pthread_cond_signal(&empty);
+        else if (nPacketLength > 2400) { //packet is too big
+            fseek(fp, nPacketLength, SEEK_CUR);
+        }
+        else {
+            // skip the first 52 bytes of data
+            fseek(fp, 52, SEEK_CUR);
+
+            struct PacketHolder packetHolder;
+
+            // read in the data directly into the packet holder
+            size_t bytesRead = fread(packetHolder.byData, 1, nPacketLength - 52, fp); //this is the packet.
+            packetHolder.bytes = bytesRead;
+
+            // update global byte count
+            totalBytes += bytesRead;
+            put(packetHolder);
+            pthread_cond_signal(&fill);
+        }
         pthread_mutex_unlock(&mutex);
     }
+    return 0;
 }
 
-
-
-
-/*-----------------------------------------------------*/
-
-
-
-
-double checkPacketsForDuplicates(struct PacketHolder packet) {
-
+void *consumer(void* arg) {
+    pthread_mutex_lock(&mutex);
+    while (count == 0) {
+        pthread_cond_wait(&fill, &mutex);
+    }
+    struct PacketHolder packet = get();
     uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
     uint32_t bucket = theHash % 30000;
 
@@ -136,59 +148,21 @@ double checkPacketsForDuplicates(struct PacketHolder packet) {
         newNode->next = NULL;
         newNode->p = packet;
         g_MyBigTable[bucket] = newNode;
-    }    
-
-    return duplicateBytes;
-}
-
-void DumpAllPacketLengths (FILE *fp)
-{
-    // We are going to assume that fp is just after the global header 
-    uint32_t     nPacketLength;
-
-    while(!feof(fp)) {
-        /* Skip the ts_sec field */
-        fseek(fp, 4, SEEK_CUR);
-
-        /* Skip the ts_usec field */
-        fseek(fp, 4, SEEK_CUR);
-
-        /* Read in the incl_len field */
-        fread(&nPacketLength, 4, 1, fp);
-
-        /* Skip the orig_len field */
-        fseek(fp, 4, SEEK_CUR);
-
-        /* Check to see if packets are in range */
-        if(nPacketLength < 128) { //packet is too small
-            fseek(fp, nPacketLength, SEEK_CUR);
-        }
-        else if (nPacketLength > 2400) { //packet is too big
-            fseek(fp, nPacketLength, SEEK_CUR);
-        }
-        else {
-            // skip the first 52 bytes of data
-            fseek(fp, 52, SEEK_CUR);
-
-            struct PacketHolder packetHolder;
-
-            // read in the data directly into the packet holder
-            size_t bytesRead = fread(packetHolder.byData, 1, nPacketLength - 52, fp); //this is the packet.
-            packetHolder.bytes = bytesRead;
-
-            // update global byte count
-            totalBytes += bytesRead;
-
-            size_t duplicateBytes = checkPacketsForDuplicates(packetHolder);
-            totalDuplicateBytes += duplicateBytes;
-        }
-        // At this point, we have read the packet and are onto the next one 
     }
+
+    totalDuplicateBytes += duplicateBytes;
+
+    pthread_cond_signal(&empty);
+    pthread_mutex_unlock(&mutex);
+    return 0;
+    
 }
+
+/*-----------------------------------------------------*/
 
 int main(int argc, char* argv[])
 {
-    int c; //TODO: Change default level back to 2, default threads back to 2.
+    int c; //TODO: Change default level back to 2
     int level = 1; // is no level if specified, we will run using Level 2
     int threads = 2; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
@@ -234,6 +208,7 @@ int main(int argc, char* argv[])
         //printf("file %d: %s\n", i, filenames[i]);
     }
 
+    //for loop for reading through each file
     for (i = 0; i < files; i++) {
         FILE *fp;
         fp = fopen(filenames[i], "r+");
@@ -249,15 +224,35 @@ int main(int argc, char* argv[])
         /* Jump through the rest (aka the other 20 bytes) to get past the global header */
         fseek(fp, 24, SEEK_CUR);
 
-        if (level == 1) {
-            DumpAllPacketLengths(fp); //still need threading for this section
+        //Thread Management
+        pthread_attr_t attr;
+        pthread_attr_init(&attr);
+        pthread_t prodID;
+        pthread_t consID[threads - 1];
+        pthread_create(&prodID, &attr, producer, fp); //makes producer thread
+        for (int i = 0; i < threads - 1; i++) { //FOR loop to make consumer threads
+            pthread_create(&consID[i], &attr, consumer, NULL);
         }
-        else if (level == 2) {
+        pthread_join(prodID, NULL); //waits for producer thread to finish.
+        for (int i = 0; i < threads - 1; i++) { //waits for consumer threads to finish.
+            pthread_join(consID[i], NULL);
+        }
 
-        }
+        //TODO: Move levels to producer and consumer functions
+        // if (level == 1) {
+        //     DumpAllPacketLengths(fp); //still need threading for this section
+        // }
+        // else if (level == 2) {
+
+        // }
+
         
         fclose(fp);
     }
+
+
+    //Output results
+
     printf("Welcome to Project 4 - ThreadedRE by Dos Lopezes y un Gringo\n");
     printf("Now operating in Level %d mode: ", level);
     if (level == 1) {
@@ -267,7 +262,7 @@ int main(int argc, char* argv[])
         printf("Sub-Payload Matching.\n");
     }
     printf("Threads Allowed: %d\n", threads);
-    printf("Allocating %d thread to file I/O, %d threads to checking for redundancy.\n", 1, threads-1);
+    printf("Allocating %d thread to file I/O, %d thread(s) to checking for redundancy.\n", 1, threads-1);
     printf("Results:\n");
     printf("%.2f MB processed.\n", (totalBytes/1000000));
     //printf("DuplicateBytes: %f\n", totalDuplicateBytes);
