@@ -1,4 +1,4 @@
-all: threadedRE
+all: threadedRE prodcon
 
 threadedRE: threadedRE.o
 	gcc threadedRE.o -o threadedRE -lpthread
