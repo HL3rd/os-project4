@@ -75,10 +75,7 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
 #define MAXSIZ 10000//TODO: define MAX
 
 pthread_mutex_t cache = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t hits = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t countlock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t completelock = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t duplicates = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 
@@ -91,32 +88,54 @@ void *producer(void *arg) {
     printf("start producer\n");
     FILE *fp = arg;
     uint32_t     nPacketLength;
+    
     while(!feof(fp)) {
         complete = 0;
         // We are going to assume that fp is just after the global header
 
         /* Skip the ts_sec field */
         fseek(fp, 4, SEEK_CUR);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Skip the ts_usec field */
         fseek(fp, 4, SEEK_CUR);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Read in the incl_len field */
         fread(&nPacketLength, 4, 1, fp);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Skip the orig_len field */
         fseek(fp, 4, SEEK_CUR);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Check to see if packets are in range */
         if(nPacketLength < 128) { //packet is too small
             fseek(fp, nPacketLength, SEEK_CUR);
+            if (feof(fp)) {
+                break;
+            }
         }
         else if (nPacketLength > 2400) { //packet is too big
             fseek(fp, nPacketLength, SEEK_CUR);
+            if (feof(fp)) {
+                break;
+            }
         }
         else {
             // skip the first 52 bytes of data
             fseek(fp, 52, SEEK_CUR);
+            if (feof(fp)) {
+                break;
+            }
 
             struct PacketHolder packetHolder;
 
@@ -133,45 +152,48 @@ void *producer(void *arg) {
             totalBytes += bytesRead;
             queue_push(&buffer, packetHolder);
             count++;
+            printf("producer incremented count to: %d\n", count);
             pthread_cond_signal(&fill);
             printf("producer released the count lock\n");
             pthread_mutex_unlock(&countlock);
         }
         
     }
-    pthread_mutex_lock(&completelock);
-    printf("producer acquired complete lock\n");
     complete = 1;
-    printf("producer released complete lock\n");
-    pthread_mutex_unlock(&completelock);
     return 0;
 }
 
 void *consumer(void* arg) {
     printf("start consumer\n");
     while(1) {
-        printf("count: %d\n", count);
-        printf("complete: %d\n", complete);
-        if (complete == 1 && count == 0) {
-            return 0;
-        }
         pthread_mutex_lock(&countlock);
         printf("consumer acquired the count lock\n");
+        printf("count: %d\n", count);
+        printf("complete: %d\n", complete);
         while (count == 0) {
+            printf("inside while loop\n");
+            if (complete == 1) {
+                pthread_mutex_unlock(&countlock);
+                printf("consumer is returning\n");
+                printf("--------------------------------------------------------------\n\n");
+                return 0;
+            }
+            printf("before the cond wait\n");
             pthread_cond_wait(&fill, &countlock);
+            printf("after cond wait\n");
         } 
         struct PacketHolder packet;
         int retnval = queue_pop(&buffer, &packet);
         count--;
-        pthread_cond_signal(&empty);
+        printf("consumer decremented count to: %d\n", count);
+        // pthread_cond_signal(&empty);
         printf("consumer released count lock\n");
-        pthread_mutex_unlock(&countlock);
-
         if (complete == 1 && retnval == -1) {
+            pthread_mutex_unlock(&countlock);
             return 0;
         }
-        // printf("consumer released complete lock after checking if queue was empty\n");
-        // pthread_mutex_unlock(&completelock);
+        pthread_mutex_unlock(&countlock);
+
         uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
         uint32_t bucket = theHash % 30000;
 
@@ -237,7 +259,7 @@ int main(int argc, char* argv[])
 {
     int c; //TODO: Change default level back to 2
     int level = 1; // is no level if specified, we will run using Level 2
-    int threads = 3; //TODO: specify a default value for threads
+    int threads = 5; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
 
@@ -306,10 +328,15 @@ int main(int argc, char* argv[])
         } 
         
         pthread_join(prodID, NULL);
+
+        while (count > 0) {
+            pthread_cond_signal(&fill);
+        }
+        pthread_cond_broadcast(&fill);
+
         for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
         }
-
         //TODO: Move levels to producer and consumer functions
         // if (level == 1) {
         //     DumpAllPacketLengths(fp); //still need threading for this section
