@@ -1,4 +1,4 @@
-all: threadedRE noThreaded prodconHora level2 level22
+all: threadedRE noThreaded prodconHora level2 level22 level1
 
 threadedRE: threadedRE.o
 	gcc threadedRE.o -o threadedRE -lpthread
@@ -30,8 +30,15 @@ level22: level22.o
 level22.o: level22.c
 	gcc -Wall -g -c level22.c -o level22.o
 
+level1: level1.o
+	gcc level1.o -o level1 -lpthread
+
+level1.o: level1.c
+	gcc -Wall -g -c level1.c -o level1.o
+
 clean:
 	rm -f threadedRE.o noThreaded.o prodconHora.o
 	rm -f threadedRE noThreaded prodconHora
 	rm -f level2.o level2
 	rm -f level22.o level22
+	rm -f level1.o level1
