@@ -13,12 +13,14 @@
 #include "functions.h"
 
 double totalBytes = 0; // keeps track of all bytes
+double totalCacheSize = 0; // keeps track of the data structure's size
 double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
 int cacheHits = 0;
 
 int count = 0;
 int complete = 0;
+int level = 2; // default is Level 2
 
 typedef struct __node_t {
     struct PacketHolder p;
@@ -141,17 +143,44 @@ void *producer(void *arg) {
             // read in the data directly into the packet holder
             size_t bytesRead = fread(packetHolder.byData, 1, nPacketLength - 52, fp); //this is the packet.
             packetHolder.bytes = bytesRead;
-
-            pthread_mutex_lock(&countlock);
-            while (count == MAXSIZ) {
-                pthread_cond_wait(&empty, &countlock);
+            if (level == 1){
+                pthread_mutex_lock(&countlock);
+                while (count == MAXSIZ) {
+                    pthread_cond_wait(&empty, &countlock);
+                }
+                // update global byte count
+                totalBytes += bytesRead;
+                queue_push(&buffer, packetHolder);
+                count++;
+                pthread_cond_signal(&fill);
+                pthread_mutex_unlock(&countlock);
             }
-            // update global byte count
-            totalBytes += bytesRead;
-            queue_push(&buffer, packetHolder);
-            count++;
-            pthread_cond_signal(&fill);
-            pthread_mutex_unlock(&countlock);
+            // level = 2
+            else {
+                pthread_mutex_lock(&countlock);
+                while (count == MAXSIZ) {
+                    pthread_cond_wait(&empty, &countlock);
+                }
+                int left = 0;
+                for (int right = 63; right < nPacketLength-52; right++) {
+                    char subArray[2400];
+                    struct PacketHolder temp;
+                    temp.firstIndex = left;
+                    temp.bytes = 64;
+                    for (int i = 0; i < 64; i++) {
+                        subArray[i] = packetHolder.byData[left];
+                        left++;
+                    }
+                    sprintf(temp.byData, "%s", subArray);
+                    queue_push(&buffer, temp);
+                    totalBytes += 64;
+                    left = right - 62;
+                    count++;
+                }
+                pthread_cond_signal(&fill);
+                pthread_mutex_unlock(&countlock);
+            }
+            
         }
         
     }
@@ -184,54 +213,150 @@ void *consumer(void* arg) {
         packet.nHash = theHash;
 
         double duplicateBytes = 0;
-
-        // check if the "bucket" contains an element
         pthread_mutex_lock(&cache);
-        if (g_MyBigTable[bucket]) {
+        if (level == 1) {
+            // check if the "bucket" contains an element
+            if (g_MyBigTable[bucket]) {
 
-            struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
-            int matchFound = 0; // keeps track of whether a match is found in the bucket
-        
-            // check if there is perfect match
-            if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {  
-                duplicateBytes = packet.bytes;
-                matchFound = 1;
-                cacheHits += 1;
-            }
-
-            while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
-                g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
-                
-                // match is found
-                if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { 
+                struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
+                int matchFound = 0; // keeps track of whether a match is found in the bucket
+            
+                // check if there is perfect match with the first node
+                if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {  
                     duplicateBytes = packet.bytes;
                     matchFound = 1;
                     cacheHits += 1;
-                    break; //we have found a match and can return
                 }
+                while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
+                    g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+                    
+                    // match is found
+                    if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { 
+                        duplicateBytes = packet.bytes;
+                        matchFound = 1;
+                        cacheHits += 1;
+                        break; //we have found a match and can return
+                    }
+                }
+
+                // No match: add packet to the linked list
+                if (matchFound == 0) {
+                    struct Node *newNode = malloc(sizeof(struct Node));
+                    newNode->next = NULL;
+                    newNode->p = packet;
+                    g_MyBigTable[bucket]->next = newNode;
+                    g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
+                }     
             }
 
-            // No match: add packet to the linked list
-            if (matchFound == 0) {
+            // Bucket is empty: add packet to the bucket
+            else {
                 struct Node *newNode = malloc(sizeof(struct Node));
                 newNode->next = NULL;
                 newNode->p = packet;
-                g_MyBigTable[bucket]->next = newNode;
-                g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
-            }     
+                g_MyBigTable[bucket] = newNode;
+            }
         }
 
-        // Bucket is empty: add packet to the bucket
+        // level = 2
         else {
-            struct Node *newNode = malloc(sizeof(struct Node));
-            newNode->next = NULL;
-            newNode->p = packet;
-            g_MyBigTable[bucket] = newNode;
+            // check if the "bucket" contains an element
+            if (g_MyBigTable[bucket]) {
+                struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
+                int matchFound = 0; // keeps track of whether a match is found in the bucket
+            
+                // check if there is perfect match with the first node
+                if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {  
+                    duplicateBytes = packet.bytes;
+                    matchFound = 1;
+                    cacheHits += 1;
+                }
+                while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
+                    g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+                    
+                    // match is found
+                    if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { 
+                        duplicateBytes = packet.bytes;
+                        matchFound = 1;
+                        cacheHits += 1;
+                        break; //we have found a match and can return
+                    }
+                }
+
+                // No match: add packet to the linked list
+                // (only if it's been 32 bytes since our last insertion and our data structure's size is less than 64 MB)
+                if (matchFound == 0 && totalCacheSize < 64000000 - sizeof(struct Node) && packet.firstIndex % 32 == 0) {
+                    // printf("MATCH FOUND AND SIZE IS STILL ACCEPTABLE AND WE CAN ADD TO CACHE\n");
+                    struct Node *newNode = malloc(sizeof(struct Node));
+                    totalCacheSize += sizeof(struct Node);
+                    newNode->next = NULL;
+                    newNode->p = packet;
+                    g_MyBigTable[bucket]->next = newNode;
+                    g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
+                } 
+
+                // data structure has reached maximum size
+                // Evict method
+                
+                else if (matchFound == 0 && packet.firstIndex % 32 == 0) {
+                    // Free a node
+                    struct Node *temp = g_MyBigTable[bucket];
+                    g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+                    head = g_MyBigTable[bucket];
+                    totalCacheSize -= sizeof(struct Node);
+                    free(temp);
+
+                    // Add packet to linked list in bucket
+                    struct Node *newNode = malloc(sizeof(struct Node));
+                    totalCacheSize += sizeof(struct Node);
+                    newNode->next = NULL;
+                    newNode->p = packet;
+                    if (g_MyBigTable[bucket]) {
+                        while(g_MyBigTable[bucket]->next != NULL) {
+                            g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+                        }
+                        g_MyBigTable[bucket]->next = newNode;
+                        g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
+                    }
+                    else {
+                        g_MyBigTable[bucket] = newNode;
+                    }
+                    
+                }    
+            }
+            // Bucket is empty: add packet to the bucket
+            else {
+                if (totalCacheSize < 64000000 - sizeof(struct Node) && packet.firstIndex % 32 == 0) {
+                    struct Node *newNode = malloc(sizeof(struct Node));
+                    totalCacheSize += sizeof(struct Node);
+                    newNode->next = NULL;
+                    newNode->p = packet;
+                    g_MyBigTable[bucket] = newNode;
+                }
+                else if (packet.firstIndex % 32 == 0) {
+                    // Free a node
+                    int i = 0;
+                    while (!g_MyBigTable[i]) {
+                        i++;
+                    }
+                    struct Node *temp = g_MyBigTable[i];
+                    g_MyBigTable[i] = g_MyBigTable[i]->next;
+                    totalCacheSize -= sizeof(struct Node);
+                    free(temp);
+
+                    // Add node to bucket
+                    struct Node *newNode = malloc(sizeof(struct Node));
+                    totalCacheSize += sizeof(struct Node);
+                    newNode->next = NULL;
+                    newNode->p = packet;
+                    g_MyBigTable[bucket] = newNode;
+                }
+            }
         }
-        
         totalDuplicateBytes += duplicateBytes;
         pthread_mutex_unlock(&cache);
     }
+        
     return 0;
 }
 
@@ -240,7 +365,6 @@ void *consumer(void* arg) {
 int main(int argc, char* argv[])
 {
     int c; //TODO: Change default level back to 2
-    int level = 1; // is no level if specified, we will run using Level 2
     int threads = 2; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
