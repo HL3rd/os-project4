@@ -56,6 +56,7 @@ struct PacketHolder {
     char byData[2400];      // The actual packet data
     uint32_t nHash;           // Hash of the packet contents
     size_t bytes;           // number of bytes read
+    int firstIndex;       // keeps track of first index or byte of the current packet segment
 };
 
 // struct implemented in our hash table 

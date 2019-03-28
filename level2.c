@@ -12,11 +12,19 @@
 #include <unistd.h>
 #include "functions.h"
 
+//TODO: take 64-byte segment
+// check if segment in cache
+// if its in the cache, call it a hit and increment duplicate bytes.
+// if it has been 32 bytes since our last cache insertion, we insert this window into our cache.
+// if not, carry on; increment start and end index by 1
+
+
 double totalBytes = 0; // keeps track of all bytes
+double totalCacheSize = 0; // keeps track of the data structure's size
 double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
 int cacheHits = 0;
-
+int testcount = 0;
 int count = 0;
 int complete = 0;
 
@@ -78,11 +86,6 @@ pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 
-//TODO: we now have to keep track of the size of our data structure ourselves to
-//make sure it doesn't go above 64MB. If it does, then we have to start
-//evicting items from our cache using a FIFO method. Our linked lists are going to increase the size
-//of the structure.
-
 void *producer(void *arg) {
     FILE *fp = arg;
     uint32_t     nPacketLength;
@@ -91,7 +94,8 @@ void *producer(void *arg) {
         while (count == MAXSIZ) {
             pthread_cond_wait(&empty, &mutex);
         }
-        pthread_mutex_lock(&mutex);
+        // pthread_mutex_lock(&mutex);
+        // printf("producer acquired lock\n");
         // We are going to assume that fp is just after the global header
 
         /* Skip the ts_sec field */
@@ -124,22 +128,48 @@ void *producer(void *arg) {
             packetHolder.bytes = bytesRead;
 
             // update global byte count
-            totalBytes += bytesRead;
-            queue_push(&buffer, packetHolder);
-            count++;
-            pthread_cond_signal(&fill);
+            // if level == 1
+            // totalBytes += bytesRead;
+        // pthread_mutex_unlock(&mutex);
+            int left = 0;
+            // if (level == 2) 
+            for (int right = 63; right < nPacketLength-52; right++) {
+                pthread_mutex_lock(&mutex);
+                //printf("right: %d\n", right);
+                char subArray[2400];
+                struct PacketHolder temp;
+                temp.firstIndex = left;
+                temp.bytes = 64;
+                for (int i = 0; i < 64; i++) {
+                    subArray[i] = packetHolder.byData[left];
+                    left++;
+                }
+                sprintf(temp.byData, "%s", subArray);
+                queue_push(&buffer, temp);
+                totalBytes += 64;
+                left = right - 62;
+                count++;
+                pthread_cond_signal(&fill);
+                pthread_mutex_unlock(&mutex);
+            }
+
         }
-        pthread_mutex_unlock(&mutex);
+        // pthread_mutex_unlock(&mutex); //TODO: possibly could go in for loop?
     }
+    // printf("finished file\n");
+    testcount = 0;
     complete = 1;
     return 0;
 }
 
 void *consumer(void* arg) {
     while(1) {
-
+             
         pthread_mutex_lock(&mutex);
-
+        // printf("count = %d\n", count);   
+        // printf("count: %d\n", count);
+        // printf("consumer acquired lock\n");
+        // printf("data structure size: %f\n", totalCacheSize);
         if (complete == 1 & count == 0) {
             pthread_mutex_unlock(&mutex);
             return 0;
@@ -164,6 +194,8 @@ void *consumer(void* arg) {
         // check if the "bucket" contains an element
         if (g_MyBigTable[bucket]) {
 
+            //TODO: add level checks
+
             struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
             int matchFound = 0; // keeps track of whether a match is found in the bucket
         
@@ -186,21 +218,80 @@ void *consumer(void* arg) {
             }
 
             // No match: add packet to the linked list
-            if (matchFound == 0) {
+            // (only if it's been 32 bytes since our last insertion and our data structure's size is less than 64 MB)
+            if (matchFound == 0 && totalCacheSize < 64000000 - sizeof(struct Node) && packet.firstIndex % 32 == 0) {
+                // printf("MATCH FOUND AND SIZE IS STILL ACCEPTABLE AND WE CAN ADD TO CACHE\n");
                 struct Node *newNode = malloc(sizeof(struct Node));
+                totalCacheSize += sizeof(struct Node);
                 newNode->next = NULL;
                 newNode->p = packet;
                 g_MyBigTable[bucket]->next = newNode;
                 g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
-            }     
+            } 
+
+            // data structure has reached maximum size
+            // Evict method
+            
+            else if (matchFound == 0 && packet.firstIndex % 32 == 0) {
+                // printf("MATCH FOUND AND WE WANT TO ADD TO CACHE BUT SIZE OVERFLOW\n");
+                // Free a node
+                struct Node *temp = g_MyBigTable[bucket];
+                g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+                totalCacheSize -= sizeof(struct Node);
+                // printf("minus evicted node: %f\n", totalCacheSize);
+                free(temp);
+
+                // Add packet to linked list in bucket
+                struct Node *newNode = malloc(sizeof(struct Node));
+                totalCacheSize += sizeof(struct Node);
+                newNode->next = NULL;
+                newNode->p = packet;
+                if (g_MyBigTable[bucket]) {
+                    while(g_MyBigTable[bucket]->next != NULL) {
+                        g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+                    }
+                    g_MyBigTable[bucket]->next = newNode;
+                    g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
+                }
+                else {
+                    g_MyBigTable[bucket] = newNode;
+                }
+                
+            }    
         }
 
         // Bucket is empty: add packet to the bucket
         else {
-            struct Node *newNode = malloc(sizeof(struct Node));
-            newNode->next = NULL;
-            newNode->p = packet;
-            g_MyBigTable[bucket] = newNode;
+            if (totalCacheSize < 64000000 - sizeof(struct Node) && packet.firstIndex % 32 == 0) {
+                // printf("NO MATCH FOUND AND SIZE ACCEPTABLE AND WE ADD TO CACHE\n");
+                struct Node *newNode = malloc(sizeof(struct Node));
+                totalCacheSize += sizeof(struct Node);
+                newNode->next = NULL;
+                newNode->p = packet;
+                g_MyBigTable[bucket] = newNode;
+            }
+            else if (packet.firstIndex % 32 == 0) {
+                testcount += 1;
+                // printf("NO MATCH FOUND AND SIZE OVERFLOW AND WE WANT TO ADD TO CACHE\n");
+                // printf("testcount = %d\n", testcount);
+                // Free a node
+                int i = 0;
+                while (!g_MyBigTable[i]) {
+                    i++;
+                }
+                // printf("hi\n");
+                struct Node *temp = g_MyBigTable[i];
+                g_MyBigTable[i] = g_MyBigTable[i]->next;
+                totalCacheSize -= sizeof(struct Node);
+                free(temp);
+
+                // Add node to bucket
+                struct Node *newNode = malloc(sizeof(struct Node));
+                totalCacheSize += sizeof(struct Node);
+                newNode->next = NULL;
+                newNode->p = packet;
+                g_MyBigTable[bucket] = newNode;
+            }
         }
 
         totalDuplicateBytes += duplicateBytes;
@@ -314,7 +405,7 @@ int main(int argc, char* argv[])
     printf("Threads Allowed: %d\n", threads);
     printf("Allocating %d thread to file I/O, %d thread(s) to checking for redundancy.\n", 1, threads-1);
     printf("Results:\n");
-    printf("%.2f MB processed.\n", (totalBytes/1000000));
+    printf("%.2f MB processed.\n", (totalBytes/1000000)); //TODO: update this accordingly
     printf("%d hit(s).\n", cacheHits);
 
     double percentage = (totalDuplicateBytes / totalBytes) * 100;
