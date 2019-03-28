@@ -20,6 +20,8 @@ int cacheHits = 0;
 
 int count = 0;
 int complete = 0;
+int checkingWindow = 0;
+int someMatch = 0;
 
 typedef struct __node_t {
     struct PacketHolder p;
@@ -105,59 +107,106 @@ pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 void *producer(void *arg) {
     FILE *fp = arg;
     uint32_t     nPacketLength;
-    while(!feof(fp)) {
-        complete = 0;
-        printf("producer acquired the lock\n");
-        while (count == MAXSIZ) {
-            pthread_cond_wait(&empty, &mutex);
+
+
+    if (checkingWindow) {
+      while(!feof(fp)) {
+          struct PacketHolder packetHolder;
+
+          size_t bytesRead = 0;
+          // read in the data directly into the packet holder
+          if (someMatch) {
+              // loop byte by byte after the window
+              size_t bytesRead = fread(packetHolder.byData, 1, 1, fp); //this is the packet.
+              packetHolder.bytes = bytesRead;
+              printf("producer read %.2zu bytes\n", packetHolder.bytes);
+
+              // update global byte count
+              totalBytes += bytesRead;
+              queue_push(&buffer, packetHolder);
+              count++;
+              // printf("put packet in\n");
+              pthread_cond_signal(&fill);
+              printf("producer signaled fill\n");
+              printf("producer releasing lock, with totalBytes = %.2f\n", totalBytes);
+              sleep(1);
+              fflush(stdout);
+              pthread_mutex_unlock(&mutex);
+          } else {
+              // go to the next 64 byte window
+              size_t bytesRead = fread(packetHolder.byData, 1, 64, fp); //this is the packet.
+              packetHolder.bytes = bytesRead;
+              printf("producer read %.2zu bytes\n", packetHolder.bytes);
+
+              // update global byte count
+              totalBytes += bytesRead;
+              queue_push(&buffer, packetHolder);
+              count++;
+              // printf("put packet in\n");
+              pthread_cond_signal(&fill);
+              printf("producer signaled fill\n");
+              printf("producer releasing lock, with totalBytes = %.2f\n", totalBytes);
+              sleep(1);
+              fflush(stdout);
+              pthread_mutex_unlock(&mutex);
+          }
+
+      }
+    } else {
+          while(!feof(fp)) {
+              complete = 0;
+              printf("producer acquired the lock\n");
+              while (count == MAXSIZ) {
+                  pthread_cond_wait(&empty, &mutex);
+              }
+              pthread_mutex_lock(&mutex);
+              printf("producer received signal empty\n");
+              // We are going to assume that fp is just after the global header
+
+              /* Skip the ts_sec field */
+              fseek(fp, 4, SEEK_CUR);
+
+              /* Skip the ts_usec field */
+              fseek(fp, 4, SEEK_CUR);
+
+              /* Read in the incl_len field */
+              fread(&nPacketLength, 4, 1, fp);
+
+              /* Skip the orig_len field */
+              fseek(fp, 4, SEEK_CUR);
+
+              /* Check to see if packets are in range */
+              if(nPacketLength < 128) { //packet is too small
+                  fseek(fp, nPacketLength, SEEK_CUR);
+              }
+              else if (nPacketLength > 2400) { //packet is too big
+                  fseek(fp, nPacketLength, SEEK_CUR);
+              }
+              else {
+                  // skip the first 52 bytes of data
+                  fseek(fp, 52, SEEK_CUR);
+
+                  struct PacketHolder packetHolder;
+
+                  // read in the data directly into the packet holder
+                  // TODO: Come back to loop if needed
+                  size_t bytesRead = fread(packetHolder.byData, 1, 64, fp); //this is the packet.
+                  packetHolder.bytes = bytesRead;
+                  printf("producer read %.2zu bytes\n", packetHolder.bytes);
+
+                  // update global byte count
+                  totalBytes += bytesRead;
+                  queue_push(&buffer, packetHolder);
+                  count++;
+                  // printf("put packet in\n");
+                  pthread_cond_signal(&fill);
+                  printf("producer signaled fill\n");
+              }
+              printf("producer releasing lock, with totalBytes = %.2f\n", totalBytes);
+              sleep(1);
+              fflush(stdout);
+              pthread_mutex_unlock(&mutex);
         }
-        pthread_mutex_lock(&mutex);
-        printf("producer received signal empty\n");
-        // We are going to assume that fp is just after the global header
-
-        /* Skip the ts_sec field */
-        fseek(fp, 4, SEEK_CUR);
-
-        /* Skip the ts_usec field */
-        fseek(fp, 4, SEEK_CUR);
-
-        /* Read in the incl_len field */
-        fread(&nPacketLength, 4, 1, fp);
-
-        /* Skip the orig_len field */
-        fseek(fp, 4, SEEK_CUR);
-
-        /* Check to see if packets are in range */
-        if(nPacketLength < 128) { //packet is too small
-            fseek(fp, nPacketLength, SEEK_CUR);
-        }
-        else if (nPacketLength > 2400) { //packet is too big
-            fseek(fp, nPacketLength, SEEK_CUR);
-        }
-        else {
-            // skip the first 52 bytes of data
-            fseek(fp, 52, SEEK_CUR);
-
-            struct PacketHolder packetHolder;
-
-            // read in the data directly into the packet holder
-            // TODO: Come back to loop if needed
-            size_t bytesRead = fread(packetHolder.byData, 1, 64, fp); //this is the packet.
-            packetHolder.bytes = bytesRead;
-            printf("producer read %.2zu bytes\n", packetHolder.bytes);
-
-            // update global byte count
-            totalBytes += bytesRead;
-            queue_push(&buffer, packetHolder);
-            count++;
-            // printf("put packet in\n");
-            pthread_cond_signal(&fill);
-            printf("producer signaled fill\n");
-        }
-        printf("producer releasing lock, with totalBytes = %.2f\n", totalBytes);
-        sleep(1);
-        fflush(stdout);
-        pthread_mutex_unlock(&mutex);
     }
     complete = 1;
     return 0;
@@ -208,6 +257,7 @@ void *consumer(void* arg) {
                 matchFound = 1;
                 cacheHits += 1;
                 printf("CACHE HIT: %d\n", cacheHits);
+                checkingWindow = 1;
                 // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes?
             }
             while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
@@ -220,6 +270,7 @@ void *consumer(void* arg) {
                     cacheHits += 1;
                     printf("CACHE HIT: %d\n", cacheHits);
                     // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes
+                    checkingWindow = 1;
                     break; //we have found a match and can return
                 }
             }
@@ -242,6 +293,7 @@ void *consumer(void* arg) {
                 g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list.
                 // otherwise, if not < 64, then we
                 // g_MyBigTable[bucket] = g_MyBigTable[bucket]->next, THEN do the insertion
+                checkingWindow = 0;
             }
         }
         // Bucket is empty: add packet to the bucket
@@ -250,6 +302,7 @@ void *consumer(void* arg) {
             newNode->next = NULL;
             newNode->p = packet;
             g_MyBigTable[bucket] = newNode;
+            checkingWindow = 0;
         }
 
         totalDuplicateBytes += duplicateBytes;
