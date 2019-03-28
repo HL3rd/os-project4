@@ -241,7 +241,7 @@ int main(int argc, char* argv[])
 {
     int c; //TODO: Change default level back to 2
     int level = 1; // is no level if specified, we will run using Level 2
-    int threads = 5; //TODO: specify a default value for threads
+    int threads = 2; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
 
@@ -261,12 +261,10 @@ int main(int argc, char* argv[])
 			case 'l':
                 level = atoi(optarg);
                 files = files - 2;
-                printf("level: %d\n", level);
                 break;
             case 't':
                 threads = atoi(optarg);
                 files = files - 2;
-                printf("threads: %d\n", threads);
                 break;
 		}
 	}
