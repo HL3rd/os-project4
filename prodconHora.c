@@ -150,7 +150,6 @@ void *producer(void *arg) {
               fflush(stdout);
               pthread_mutex_unlock(&mutex);
           }
-
       }
     } else {
           while(!feof(fp)) {
