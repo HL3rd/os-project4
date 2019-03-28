@@ -75,23 +75,6 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
 #define MAXSIZ 10000//TODO: define MAX
 #define RAND_DIVISOR 100000000
 
-// struct PacketHolder buffer[MAXSIZ];
-// int fill_ptr = 0;
-// int use_ptr = 0;
-
-
-// void put(struct PacketHolder packet) {
-//     buffer[fill_ptr] = packet;
-//     fill_ptr = (fill_ptr + 1) % MAXSIZ;
-//     count++;
-// }
-
-// struct PacketHolder get() {
-//     struct PacketHolder tmp = buffer[use_ptr];
-//     use_ptr = (use_ptr + 1) % MAXSIZ;
-//     count--;
-//     return tmp;
-// }
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
@@ -106,12 +89,10 @@ void *producer(void *arg) {
     uint32_t     nPacketLength;
     while(!feof(fp)) {
         complete = 0;
-        // printf("producer acquired the lock\n");
         while (count == MAXSIZ) {
             pthread_cond_wait(&empty, &mutex);
         }
         pthread_mutex_lock(&mutex);
-        // printf("producer received signal empty\n");
         // We are going to assume that fp is just after the global header
 
         /* Skip the ts_sec field */
@@ -147,13 +128,8 @@ void *producer(void *arg) {
             totalBytes += bytesRead;
             queue_push(&buffer, packetHolder);
             count++;
-            // printf("put packet in\n");
             pthread_cond_signal(&fill);
-            // printf("producer signaled fill\n");
         }
-        // printf("producer releasing lock\n");
-        // sleep(1);
-        // fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
     complete = 1;
@@ -163,11 +139,7 @@ void *producer(void *arg) {
 void *consumer(void* arg) {
     while(1) {
 
-        // printf("inside complete loop in consumer\n");
-        // printf("complete = %d\n", complete);
-        // printf("count= %d\n", count);
         pthread_mutex_lock(&mutex);
-        // printf("consumer acquired the lock\n");
 
         if (complete == 1 & count == 0) {
             pthread_mutex_unlock(&mutex);
@@ -176,16 +148,13 @@ void *consumer(void* arg) {
         while (count == 0) {
             pthread_cond_wait(&fill, &mutex);
         }
-        // printf("consumer received signal fill\n");
         struct PacketHolder packet;
         int retnval = queue_pop(&buffer, &packet);
         count--;
         if (complete == 1 && retnval == -1) {
-            // printf("empty queue and producer is done\n");
             pthread_mutex_unlock(&mutex);
             return 0;
         }
-        // printf("got package\n");
         uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
         uint32_t bucket = theHash % 30000;
 
@@ -236,13 +205,6 @@ void *consumer(void* arg) {
         }
 
         totalDuplicateBytes += duplicateBytes;
-
-        // pthread_cond_signal(&empty);
-        //printf("consumer signaled empty\n");
-        // printf("consumer releasing lock\n");
-        //printf("count= %d\n", count);
-        //sleep(2);
-        // fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
     printf("consumer is leaving\n");
@@ -296,7 +258,6 @@ int main(int argc, char* argv[])
     int i;
     for (i = 0; i < files; i++) {
         filenames[i] = argv[argc-files + i];
-        // printf("file %d: %s\n", i, filenames[i]);
     }
     //for loop for reading through each file
     for (i = 0; i < files; i++) {
@@ -326,13 +287,10 @@ int main(int argc, char* argv[])
             pthread_create(&consID[i], &attr, consumer, NULL);
         } 
         
-        // printf("hello\n");
         pthread_join(prodID, NULL);
         for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
         }
-
-        // printf("goodbye\n");
 
         //TODO: Move levels to producer and consumer functions
         // if (level == 1) {
@@ -342,12 +300,8 @@ int main(int argc, char* argv[])
 
         // }
 
-        
         fclose(fp);
     }
-
-    //int rnum = rand() / RAND_DIVISOR;
-    //sleep(rnum);
 
     //Output results
 
@@ -364,7 +318,7 @@ int main(int argc, char* argv[])
     printf("Results:\n");
     printf("%.2f MB processed.\n", (totalBytes/1000000));
     //printf("DuplicateBytes: %f\n", totalDuplicateBytes);
-    printf("%d hits.\n", cacheHits);
+    printf("%d hit(s).\n", cacheHits);
 
     double percentage = (totalDuplicateBytes / totalBytes) * 100;
     printf("%.2f%% redundancy detected.\n", percentage);
