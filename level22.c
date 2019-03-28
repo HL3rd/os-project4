@@ -83,19 +83,22 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
 #define MAXSIZ 10000//TODO: define MAX
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t bufferLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t countLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t hashLock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t cacheHitsLock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
+pthread_mutex_t cacheSizeLock = PTHREAD_MUTEX_INITIALIZER;
 
 void *producer(void *arg) {
     FILE *fp = arg;
     uint32_t     nPacketLength;
     while(!feof(fp)) {
-        pthread_mutex_lock(&mutex);
         complete = 0;
-        pthread_mutex_unlock(&mutex);
 
         while (count == MAXSIZ) {
-            pthread_cond_wait(&empty, &mutex);
+            pthread_cond_wait(&empty, &bufferLock);
         }
         // pthread_mutex_lock(&mutex);
         // printf("producer acquired lock\n");
@@ -147,12 +150,14 @@ void *producer(void *arg) {
                     left++;
                 }
                 sprintf(temp.byData, "%s", subArray);
+                pthread_mutex_lock(&bufferLock);
                 queue_push(&buffer, temp);
+                pthread_mutex_unlock(&bufferLock);
                 totalBytes += 64;
                 left = right - 62;
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&countLock);
                 count++;
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&countLock);
                 pthread_cond_signal(&fill);
             }
 
@@ -160,37 +165,33 @@ void *producer(void *arg) {
         // pthread_mutex_unlock(&mutex); //TODO: possibly could go in for loop?
     }
     // printf("finished file\n");
-    pthread_mutex_lock(&mutex);
     complete = 1;
-    pthread_mutex_unlock(&mutex);
     return 0;
 }
 
 void *consumer(void* arg) {
     while(1) {
              
-        pthread_mutex_lock(&mutex);
         // printf("count = %d\n", count);   
         // printf("count: %d\n", count);
         // printf("consumer acquired lock\n");
         // printf("data structure size: %f\n", totalCacheSize);
         if (complete == 1 & count == 0) {
-            pthread_mutex_unlock(&mutex);
             return 0;
         }
         while (count == 0) {
-            pthread_cond_wait(&fill, &mutex);
+            pthread_cond_wait(&fill, &bufferLock);
         }
-        pthread_mutex_unlock(&mutex);
         struct PacketHolder packet;
+        pthread_mutex_lock(&bufferLock);
         int retnval = queue_pop(&buffer, &packet);
-        pthread_mutex_lock(&mutex);
+        pthread_mutex_unlock(&bufferLock);
+        pthread_mutex_lock(&countLock);
         count--;
+        pthread_mutex_unlock(&countLock);
         if (complete == 1 && retnval == -1) {
-            pthread_mutex_unlock(&mutex);
             return 0;
         }
-        pthread_mutex_unlock(&mutex);
         uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
         uint32_t bucket = theHash % 30000;
 
@@ -210,22 +211,22 @@ void *consumer(void* arg) {
             if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {  
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&cacheHitsLock);
                 cacheHits += 1;
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&cacheHitsLock);
             }
             while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&hashLock);
                 g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&hashLock);
                 
                 // match is found
                 if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { 
                     duplicateBytes = packet.bytes;
                     matchFound = 1;
-                    pthread_mutex_lock(&mutex);
+                    pthread_mutex_lock(&cacheHitsLock);
                     cacheHits += 1;
-                    pthread_mutex_unlock(&mutex);
+                    pthread_mutex_unlock(&cacheHitsLock);
                     break; //we have found a match and can return
                 }
             }
@@ -235,13 +236,15 @@ void *consumer(void* arg) {
             if (matchFound == 0 && totalCacheSize < 64000000 - sizeof(struct Node) && packet.firstIndex % 32 == 0) {
                 // printf("MATCH FOUND AND SIZE IS STILL ACCEPTABLE AND WE CAN ADD TO CACHE\n");
                 struct Node *newNode = malloc(sizeof(struct Node));
+                pthread_mutex_lock(&cacheSizeLock);
                 totalCacheSize += sizeof(struct Node);
+                pthread_mutex_unlock(&cacheSizeLock);
                 newNode->next = NULL;
                 newNode->p = packet;
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&hashLock);
                 g_MyBigTable[bucket]->next = newNode;
                 g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&hashLock);
             } 
 
             // data structure has reached maximum size
@@ -251,33 +254,37 @@ void *consumer(void* arg) {
                 // printf("MATCH FOUND AND WE WANT TO ADD TO CACHE BUT SIZE OVERFLOW\n");
                 // Free a node
                 struct Node *temp = g_MyBigTable[bucket];
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&hashLock);
                 g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&hashLock);
+                pthread_mutex_lock(&cacheSizeLock);
                 totalCacheSize -= sizeof(struct Node);
+                pthread_mutex_unlock(&cacheSizeLock);
                 // printf("minus evicted node: %f\n", totalCacheSize);
                 free(temp);
 
                 // Add packet to linked list in bucket
                 struct Node *newNode = malloc(sizeof(struct Node));
+                pthread_mutex_lock(&cacheSizeLock);
                 totalCacheSize += sizeof(struct Node);
+                pthread_mutex_unlock(&cacheSizeLock);
                 newNode->next = NULL;
                 newNode->p = packet;
                 if (g_MyBigTable[bucket]) {
                     while(g_MyBigTable[bucket]->next != NULL) {
-                        pthread_mutex_lock(&mutex);
+                        pthread_mutex_lock(&hashLock);
                         g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
-                        pthread_mutex_unlock(&mutex);
+                        pthread_mutex_unlock(&hashLock);
                     }
-                    pthread_mutex_lock(&mutex);
+                    pthread_mutex_lock(&hashLock);
                     g_MyBigTable[bucket]->next = newNode;
                     g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
-                    pthread_mutex_unlock(&mutex);
+                    pthread_mutex_unlock(&hashLock);
                 }
                 else {
-                    pthread_mutex_lock(&mutex);
+                    pthread_mutex_lock(&hashLock);
                     g_MyBigTable[bucket] = newNode;
-                    pthread_mutex_unlock(&mutex);
+                    pthread_mutex_unlock(&hashLock);
                 }
                 
             }    
@@ -288,12 +295,14 @@ void *consumer(void* arg) {
             if (totalCacheSize < 64000000 - sizeof(struct Node) && packet.firstIndex % 32 == 0) {
                 // printf("NO MATCH FOUND AND SIZE ACCEPTABLE AND WE ADD TO CACHE\n");
                 struct Node *newNode = malloc(sizeof(struct Node));
+                pthread_mutex_lock(&cacheSizeLock);
                 totalCacheSize += sizeof(struct Node);
+                pthread_mutex_unlock(&cacheSizeLock);
                 newNode->next = NULL;
                 newNode->p = packet;
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&hashLock);
                 g_MyBigTable[bucket] = newNode;
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&hashLock);
             }
             else if (packet.firstIndex % 32 == 0) {
                 // printf("NO MATCH FOUND AND SIZE OVERFLOW AND WE WANT TO ADD TO CACHE\n");
@@ -305,20 +314,24 @@ void *consumer(void* arg) {
                 }
                 // printf("hi\n");
                 struct Node *temp = g_MyBigTable[i];
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&hashLock);
                 g_MyBigTable[i] = g_MyBigTable[i]->next;
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&hashLock);
+                pthread_mutex_lock(&cacheSizeLock);
                 totalCacheSize -= sizeof(struct Node);
+                pthread_mutex_unlock(&cacheSizeLock);
                 free(temp);
 
                 // Add node to bucket
                 struct Node *newNode = malloc(sizeof(struct Node));
+                pthread_mutex_lock(&cacheSizeLock);
                 totalCacheSize += sizeof(struct Node);
+                pthread_mutex_unlock(&cacheSizeLock);
                 newNode->next = NULL;
                 newNode->p = packet;
-                pthread_mutex_lock(&mutex);
+                pthread_mutex_lock(&hashLock);
                 g_MyBigTable[bucket] = newNode;
-                pthread_mutex_unlock(&mutex);
+                pthread_mutex_unlock(&hashLock);
             }
         }
         pthread_mutex_lock(&mutex);
