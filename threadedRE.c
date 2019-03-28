@@ -74,17 +74,12 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
     return 0;
 }
 
-#define MAXSIZ 10000//TODO: define MAX
+#define MAXSIZ 10000
 
 pthread_mutex_t cache = PTHREAD_MUTEX_INITIALIZER;
 pthread_mutex_t countlock = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
-
-//TODO: we now have to keep track of the size of our data structure ourselves to
-//make sure it doesn't go above 64MB. If it does, then we have to start
-//evicting items from our cache using a FIFO method. Our linked lists are going to increase the size
-//of the structure.
 
 void *producer(void *arg) {
     FILE *fp = arg;
@@ -364,8 +359,8 @@ void *consumer(void* arg) {
 
 int main(int argc, char* argv[])
 {
-    int c; //TODO: Change default level back to 2
-    int threads = 2; //TODO: specify a default value for threads
+    int c;
+    int threads = 500; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
 
@@ -393,9 +388,23 @@ int main(int argc, char* argv[])
 		}
 	}
 
+    if (threads == 500) { //user didn't set value, give them defaults.
+        if (level == 1) {
+            threads = 5;
+        }
+        else if (level == 2) {
+            threads = 2;
+        }
+    }
+
+    if (level != 1 && level != 2) {
+        printf("ERROR: Invalid level given.\n");
+        exit(1);
+    }
+
     // Check number of threads
-    if (threads < min_threads) {
-        printf("error: Minimum of two threads allowed.\n");
+    if (threads < min_threads || threads > 10) {
+        printf("ERROR: Only 2 to 10 threads allowed.\n");
         exit(1);
     }
     
@@ -441,13 +450,6 @@ int main(int argc, char* argv[])
         for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
         }
-        //TODO: Move levels to producer and consumer functions
-        // if (level == 1) {
-        //     DumpAllPacketLengths(fp); //still need threading for this section
-        // }
-        // else if (level == 2) {
-
-        // }
 
         fclose(fp);
     }

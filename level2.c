@@ -24,7 +24,6 @@ double totalCacheSize = 0; // keeps track of the data structure's size
 double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
 int cacheHits = 0;
-int testcount = 0;
 int count = 0;
 int complete = 0;
 
@@ -82,7 +81,8 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
 
 #define MAXSIZ 10000//TODO: define MAX
 
-pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t countlock = PTHREAD_MUTEX_INITIALIZER;
+pthread_mutex_t cache = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 
@@ -91,35 +91,51 @@ void *producer(void *arg) {
     uint32_t     nPacketLength;
     while(!feof(fp)) {
         complete = 0;
-        while (count == MAXSIZ) {
-            pthread_cond_wait(&empty, &mutex);
-        }
-        // pthread_mutex_lock(&mutex);
-        // printf("producer acquired lock\n");
         // We are going to assume that fp is just after the global header
 
         /* Skip the ts_sec field */
         fseek(fp, 4, SEEK_CUR);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Skip the ts_usec field */
         fseek(fp, 4, SEEK_CUR);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Read in the incl_len field */
         fread(&nPacketLength, 4, 1, fp);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Skip the orig_len field */
         fseek(fp, 4, SEEK_CUR);
+        if (feof(fp)) {
+            break;
+        }
 
         /* Check to see if packets are in range */
         if(nPacketLength < 128) { //packet is too small
             fseek(fp, nPacketLength, SEEK_CUR);
+            if (feof(fp)) {
+                break;
+            }
         }
         else if (nPacketLength > 2400) { //packet is too big
             fseek(fp, nPacketLength, SEEK_CUR);
+            if (feof(fp)) {
+                break;
+            }
         }
         else {
             // skip the first 52 bytes of data
             fseek(fp, 52, SEEK_CUR);
+            if (feof(fp)) {
+                break;
+            }
 
             struct PacketHolder packetHolder;
 
@@ -128,14 +144,12 @@ void *producer(void *arg) {
             packetHolder.bytes = bytesRead;
 
             // update global byte count
-            // if level == 1
-            // totalBytes += bytesRead;
-        // pthread_mutex_unlock(&mutex);
+            pthread_mutex_lock(&countlock);
+            while (count == MAXSIZ) {
+                pthread_cond_wait(&empty, &countlock);
+            }
             int left = 0;
-            // if (level == 2) 
             for (int right = 63; right < nPacketLength-52; right++) {
-                pthread_mutex_lock(&mutex);
-                //printf("right: %d\n", right);
                 char subArray[2400];
                 struct PacketHolder temp;
                 temp.firstIndex = left;
@@ -149,41 +163,37 @@ void *producer(void *arg) {
                 totalBytes += 64;
                 left = right - 62;
                 count++;
-                pthread_cond_signal(&fill);
-                pthread_mutex_unlock(&mutex);
-            }
 
+            }
+            pthread_cond_signal(&fill);
+            pthread_mutex_unlock(&countlock);
         }
         // pthread_mutex_unlock(&mutex); //TODO: possibly could go in for loop?
     }
     // printf("finished file\n");
-    testcount = 0;
     complete = 1;
     return 0;
 }
 
 void *consumer(void* arg) {
-    while(1) {
-             
-        pthread_mutex_lock(&mutex);
-        // printf("count = %d\n", count);   
-        // printf("count: %d\n", count);
-        // printf("consumer acquired lock\n");
-        // printf("data structure size: %f\n", totalCacheSize);
-        if (complete == 1 & count == 0) {
-            pthread_mutex_unlock(&mutex);
-            return 0;
-        }
+    while(1) {      
+        pthread_mutex_lock(&countlock);
         while (count == 0) {
-            pthread_cond_wait(&fill, &mutex);
+            if (complete == 1) {
+                pthread_mutex_unlock(&countlock);
+                return 0;
+            }
+            pthread_cond_wait(&fill, &countlock);
         }
         struct PacketHolder packet;
         int retnval = queue_pop(&buffer, &packet);
         count--;
         if (complete == 1 && retnval == -1) {
-            pthread_mutex_unlock(&mutex);
+            pthread_mutex_unlock(&countlock);
             return 0;
         }
+        pthread_mutex_unlock(&countlock);
+
         uint32_t theHash = hashlittle(packet.byData, packet.bytes, 1); //hashes our payload
         uint32_t bucket = theHash % 30000;
 
@@ -192,6 +202,7 @@ void *consumer(void* arg) {
         double duplicateBytes = 0;
 
         // check if the "bucket" contains an element
+        pthread_mutex_lock(&cache);
         if (g_MyBigTable[bucket]) {
 
             //TODO: add level checks
@@ -237,6 +248,7 @@ void *consumer(void* arg) {
                 // Free a node
                 struct Node *temp = g_MyBigTable[bucket];
                 g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
+                head = g_MyBigTable[bucket];
                 totalCacheSize -= sizeof(struct Node);
                 // printf("minus evicted node: %f\n", totalCacheSize);
                 free(temp);
@@ -271,7 +283,6 @@ void *consumer(void* arg) {
                 g_MyBigTable[bucket] = newNode;
             }
             else if (packet.firstIndex % 32 == 0) {
-                testcount += 1;
                 // printf("NO MATCH FOUND AND SIZE OVERFLOW AND WE WANT TO ADD TO CACHE\n");
                 // printf("testcount = %d\n", testcount);
                 // Free a node
@@ -295,7 +306,7 @@ void *consumer(void* arg) {
         }
 
         totalDuplicateBytes += duplicateBytes;
-        pthread_mutex_unlock(&mutex);
+        pthread_mutex_unlock(&cache);
     }
     return 0;
 }
@@ -377,6 +388,12 @@ int main(int argc, char* argv[])
         } 
         
         pthread_join(prodID, NULL);
+
+        while (count > 0) {
+            pthread_cond_signal(&fill);
+        }
+        pthread_cond_broadcast(&fill);
+
         for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
         }
