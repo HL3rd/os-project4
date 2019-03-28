@@ -85,7 +85,6 @@ pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 //of the structure.
 
 void *producer(void *arg) {
-    printf("start producer\n");
     FILE *fp = arg;
     uint32_t     nPacketLength;
     
@@ -144,7 +143,6 @@ void *producer(void *arg) {
             packetHolder.bytes = bytesRead;
 
             pthread_mutex_lock(&countlock);
-            printf("producer acquired the count lock\n");
             while (count == MAXSIZ) {
                 pthread_cond_wait(&empty, &countlock);
             }
@@ -152,9 +150,7 @@ void *producer(void *arg) {
             totalBytes += bytesRead;
             queue_push(&buffer, packetHolder);
             count++;
-            printf("producer incremented count to: %d\n", count);
             pthread_cond_signal(&fill);
-            printf("producer released the count lock\n");
             pthread_mutex_unlock(&countlock);
         }
         
@@ -164,30 +160,18 @@ void *producer(void *arg) {
 }
 
 void *consumer(void* arg) {
-    printf("start consumer\n");
     while(1) {
         pthread_mutex_lock(&countlock);
-        printf("consumer acquired the count lock\n");
-        printf("count: %d\n", count);
-        printf("complete: %d\n", complete);
         while (count == 0) {
-            printf("inside while loop\n");
             if (complete == 1) {
                 pthread_mutex_unlock(&countlock);
-                printf("consumer is returning\n");
-                printf("--------------------------------------------------------------\n\n");
                 return 0;
             }
-            printf("before the cond wait\n");
             pthread_cond_wait(&fill, &countlock);
-            printf("after cond wait\n");
         } 
         struct PacketHolder packet;
         int retnval = queue_pop(&buffer, &packet);
         count--;
-        printf("consumer decremented count to: %d\n", count);
-        // pthread_cond_signal(&empty);
-        printf("consumer released count lock\n");
         if (complete == 1 && retnval == -1) {
             pthread_mutex_unlock(&countlock);
             return 0;
@@ -203,7 +187,6 @@ void *consumer(void* arg) {
 
         // check if the "bucket" contains an element
         pthread_mutex_lock(&cache);
-        printf("consumer acquired cache lock\n");
         if (g_MyBigTable[bucket]) {
 
             struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
@@ -247,7 +230,6 @@ void *consumer(void* arg) {
         }
         
         totalDuplicateBytes += duplicateBytes;
-        printf("consumer released cache lock\n");
         pthread_mutex_unlock(&cache);
     }
     return 0;
