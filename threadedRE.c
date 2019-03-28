@@ -73,7 +73,6 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
 }
 
 #define MAXSIZ 10000//TODO: define MAX
-#define RAND_DIVISOR 100000000
 
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
@@ -207,7 +206,6 @@ void *consumer(void* arg) {
         totalDuplicateBytes += duplicateBytes;
         pthread_mutex_unlock(&mutex);
     }
-    printf("consumer is leaving\n");
     return 0;
 }
 
