@@ -7,8 +7,8 @@
 #include <errno.h>
 #include <string.h>
 #include <pthread.h>
-#include <string.h>  
-#include <getopt.h> 
+#include <string.h>
+#include <getopt.h>
 #include <unistd.h>
 #include "functions.h"
 
@@ -48,12 +48,12 @@ void queue_push(queue_t *q, struct PacketHolder p) {
         tmp->p = p;
         tmp->next = NULL;
     }
-    
+
     pthread_mutex_lock(&q->tailLock);
     q->tail->next = tmp;
     q->tail = tmp;
     pthread_mutex_unlock(&q->tailLock);
-    
+
 }
 
 int queue_pop(queue_t *q, struct PacketHolder *p) {
@@ -68,7 +68,7 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
     q->head = newHead;
     pthread_mutex_unlock(&q->headLock);
     free(tmp);
-    
+
     return 0;
 }
 
@@ -124,20 +124,20 @@ void *producer(void *arg) {
             size_t bytesRead = fread(packetHolder.byData, 1, nPacketLength - 52, fp); //this is the packet.
             packetHolder.bytes = bytesRead;
 
+            totalBytes += bytesRead;
+
             pthread_mutex_lock(&countlock);
-            printf("producer acquired the count lock\n");
             while (count == MAXSIZ) {
                 pthread_cond_wait(&empty, &countlock);
             }
-            // update global byte count
-            totalBytes += bytesRead;
+
             queue_push(&buffer, packetHolder);
+
             count++;
             pthread_cond_signal(&fill);
-            printf("producer released the count lock\n");
             pthread_mutex_unlock(&countlock);
         }
-        
+
     }
     pthread_mutex_lock(&completelock);
     printf("producer acquired complete lock\n");
@@ -159,9 +159,11 @@ void *consumer(void* arg) {
         printf("consumer acquired the count lock\n");
         while (count == 0) {
             pthread_cond_wait(&fill, &countlock);
-        } 
+        }
+
         struct PacketHolder packet;
         int retnval = queue_pop(&buffer, &packet);
+
         count--;
         pthread_cond_signal(&empty);
         printf("consumer released count lock\n");
@@ -186,9 +188,9 @@ void *consumer(void* arg) {
 
             struct Node* head = g_MyBigTable[bucket]; //sets head of linked list equal to first item in bucket
             int matchFound = 0; // keeps track of whether a match is found in the bucket
-        
+
             // check if there is perfect match
-            if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {  
+            if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
                 cacheHits += 1;
@@ -196,9 +198,9 @@ void *consumer(void* arg) {
 
             while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
                 g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
-                
+
                 // match is found
-                if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) { 
+                if (g_MyBigTable[bucket]->p.nHash == packet.nHash && memcmp(g_MyBigTable[bucket]->p.byData, packet.byData, packet.bytes) == 0) {
                     duplicateBytes = packet.bytes;
                     matchFound = 1;
                     cacheHits += 1;
@@ -212,8 +214,8 @@ void *consumer(void* arg) {
                 newNode->next = NULL;
                 newNode->p = packet;
                 g_MyBigTable[bucket]->next = newNode;
-                g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list. 
-            }     
+                g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list.
+            }
         }
 
         // Bucket is empty: add packet to the bucket
@@ -223,7 +225,7 @@ void *consumer(void* arg) {
             newNode->p = packet;
             g_MyBigTable[bucket] = newNode;
         }
-        
+
         totalDuplicateBytes += duplicateBytes;
         printf("consumer released cache lock\n");
         pthread_mutex_unlock(&cache);
@@ -237,12 +239,12 @@ int main(int argc, char* argv[])
 {
     int c; //TODO: Change default level back to 2
     int level = 1; // is no level if specified, we will run using Level 2
-    int threads = 3; //TODO: specify a default value for threads
+    int threads = 4; //TODO: specify a default value for threads
     int min_threads = 2; // minimum number of allowed threads
     int max_files = 10; // maximum number of processed files
 
     int option_index = 0;
-    static struct option long_options[] = 
+    static struct option long_options[] =
     {
         {"level",   required_argument, NULL,  'l'},
         {"thread",  required_argument, NULL,  't'},
@@ -272,7 +274,7 @@ int main(int argc, char* argv[])
         printf("error: Minimum of two threads allowed.\n");
         exit(1);
     }
-    
+
     // Save files to be processed in an array
     char *filenames[max_files];
     int i;
@@ -284,7 +286,7 @@ int main(int argc, char* argv[])
         queue_init(&buffer);
         FILE *fp;
         fp = fopen(filenames[i], "r+");
-        
+
         /* Display the Magic Number and skip over the rest */
 
         uint32_t   theMagicNum;
@@ -303,8 +305,8 @@ int main(int argc, char* argv[])
         int i;
         for (i = 1; i < threads; i++) { //FOR loop to make consumer threads
             pthread_create(&consID[i], &attr, consumer, NULL);
-        } 
-        
+        }
+
         pthread_join(prodID, NULL);
         for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);

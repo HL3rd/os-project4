@@ -113,7 +113,7 @@ void *producer(void *arg) {
       while(!feof(fp)) {
           struct PacketHolder packetHolder;
 
-          size_t bytesRead = 0;
+          // size_t bytesRead = 0;
           // read in the data directly into the packet holder
           if (someMatch) {
               // loop byte by byte after the window
