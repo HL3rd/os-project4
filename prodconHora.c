@@ -13,6 +13,7 @@
 #include "functions.h"
 
 double totalBytes = 0; // keeps track of all bytes
+double totalDataByteCount = 0;   // keeps track of non-matched consumed bytes
 double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
 int cacheHits = 0;
@@ -207,7 +208,7 @@ void *consumer(void* arg) {
                 matchFound = 1;
                 cacheHits += 1;
                 printf("CACHE HIT: %d\n", cacheHits);
-                // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes
+                // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes?
             }
             while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
                 g_MyBigTable[bucket] = g_MyBigTable[bucket]->next;
@@ -230,6 +231,13 @@ void *consumer(void* arg) {
                 // totalDataByteCount += sizeofStructNode
                 newNode->next = NULL;
                 newNode->p = packet;
+
+                if (totalBytes < 64) {
+                    // something here
+                } else {
+                    // something here
+                }
+
                 g_MyBigTable[bucket]->next = newNode;
                 g_MyBigTable[bucket] = head; //resets bucket to point to the first item in the linked list.
                 // otherwise, if not < 64, then we
@@ -329,9 +337,11 @@ int main(int argc, char* argv[])
         pthread_attr_init(&attr);
         pthread_t prodID;
         pthread_t consID[threads];
+        printf("CREATE producer thread\n");
         pthread_create(&prodID, &attr, producer, fp); //makes producer thread
         int i;
         for (i = 1; i < threads; i++) { //FOR loop to make consumer threads
+            printf("CREATE consumer loop on thread: %d\n", i);
             pthread_create(&consID[i], &attr, consumer, NULL);
         }
 
