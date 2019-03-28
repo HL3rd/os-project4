@@ -106,12 +106,12 @@ void *producer(void *arg) {
     uint32_t     nPacketLength;
     while(!feof(fp)) {
         complete = 0;
-        // printf("producer acquired the lock\n");
+        printf("producer acquired the lock\n");
         while (count == MAXSIZ) {
             pthread_cond_wait(&empty, &mutex);
         }
         pthread_mutex_lock(&mutex);
-        // printf("producer received signal empty\n");
+        printf("producer received signal empty\n");
         // We are going to assume that fp is just after the global header
 
         /* Skip the ts_sec field */
@@ -153,9 +153,9 @@ void *producer(void *arg) {
             pthread_cond_signal(&fill);
             printf("producer signaled fill\n");
         }
-        // printf("producer releasing lock\n");
-        // sleep(1);
-        // fflush(stdout);
+        printf("producer releasing lock, with totalBytes = %.2f\n", totalBytes);
+        sleep(1);
+        fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
     complete = 1;
@@ -165,9 +165,9 @@ void *producer(void *arg) {
 void *consumer(void* arg) {
     while(1) {
 
-        // printf("inside complete loop in consumer\n");
-        // printf("complete = %d\n", complete);
-        // printf("count= %d\n", count);
+        printf("inside complete loop in consumer\n");
+        printf("complete = %d\n", complete);
+        printf("count= %d\n", count);
         pthread_mutex_lock(&mutex);
         printf("consumer acquired the lock\n");
 
@@ -206,6 +206,7 @@ void *consumer(void* arg) {
                 duplicateBytes = packet.bytes;
                 matchFound = 1;
                 cacheHits += 1;
+                printf("CACHE HIT: %d\n", cacheHits);
                 // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes
             }
             while (g_MyBigTable[bucket]->next != NULL) { //read through linked list
@@ -216,6 +217,7 @@ void *consumer(void* arg) {
                     duplicateBytes = packet.bytes;
                     matchFound = 1;
                     cacheHits += 1;
+                    printf("CACHE HIT: %d\n", cacheHits);
                     // TODO: If there is a match, return to producer to continue seeking through the right side of the 64 bytes
                     break; //we have found a match and can return
                 }
@@ -244,12 +246,12 @@ void *consumer(void* arg) {
 
         totalDuplicateBytes += duplicateBytes;
 
-        // pthread_cond_signal(&empty);
-        //printf("consumer signaled empty\n");
-        // printf("consumer releasing lock\n");
-        //printf("count= %d\n", count);
-        //sleep(2);
-        // fflush(stdout);
+        pthread_cond_signal(&empty);
+        printf("consumer signaled empty\n");
+        printf("consumer releasing lock\n");
+        printf("count= %d\n", count);
+        sleep(2);
+        fflush(stdout);
         pthread_mutex_unlock(&mutex);
     }
     printf("consumer is leaving\n");
@@ -333,7 +335,7 @@ int main(int argc, char* argv[])
             pthread_create(&consID[i], &attr, consumer, NULL);
         }
 
-        // printf("hello\n");
+        printf("hello\n");
         pthread_join(prodID, NULL);
         for (i = 1; i < threads; i++) { //waits for consumer threads to finish.
             pthread_join(consID[i], NULL);
