@@ -315,7 +315,6 @@ int main(int argc, char* argv[])
     printf("Allocating %d thread to file I/O, %d thread(s) to checking for redundancy.\n", 1, threads-1);
     printf("Results:\n");
     printf("%.2f MB processed.\n", (totalBytes/1000000));
-    //printf("DuplicateBytes: %f\n", totalDuplicateBytes);
     printf("%d hit(s).\n", cacheHits);
 
     double percentage = (totalDuplicateBytes / totalBytes) * 100;
