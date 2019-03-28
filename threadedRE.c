@@ -16,11 +16,13 @@ double totalBytes = 0; // keeps track of all bytes
 double totalCacheSize = 0; // keeps track of the data structure's size
 double totalDuplicateBytes = 0; // keeps track of all duplicate bytes
 struct Node* g_MyBigTable[30000]; // this is our hash table
-int cacheHits = 0;
+int cacheHits = 0; //keeps track of cache hits
 
-int count = 0;
-int complete = 0;
+int count = 0; //keeps track of items in buffer
+int complete = 0; //keeps track of whether producer has finished processing the file
 int level = 2; // default is Level 2
+
+/* Queue Implementation - Our Producer/Consumer Buffer */
 
 typedef struct __node_t {
     struct PacketHolder p;
@@ -76,8 +78,10 @@ int queue_pop(queue_t *q, struct PacketHolder *p) {
 
 #define MAXSIZ 10000
 
-pthread_mutex_t cache = PTHREAD_MUTEX_INITIALIZER;
-pthread_mutex_t countlock = PTHREAD_MUTEX_INITIALIZER;
+/* Locks and Condition Variables */
+
+pthread_mutex_t cache = PTHREAD_MUTEX_INITIALIZER; //Cache Lock
+pthread_mutex_t countlock = PTHREAD_MUTEX_INITIALIZER; //Buffer Lock
 pthread_cond_t empty = PTHREAD_COND_INITIALIZER;
 pthread_cond_t fill = PTHREAD_COND_INITIALIZER;
 
@@ -143,7 +147,7 @@ void *producer(void *arg) {
                 while (count == MAXSIZ) {
                     pthread_cond_wait(&empty, &countlock);
                 }
-                // update global byte count
+                // update global byte count and push to buffer
                 totalBytes += bytesRead;
                 queue_push(&buffer, packetHolder);
                 count++;
@@ -156,6 +160,7 @@ void *producer(void *arg) {
                 while (count == MAXSIZ) {
                     pthread_cond_wait(&empty, &countlock);
                 }
+                /* Below Section divides our packets into windows */
                 int left = 0;
                 for (int right = 63; right < nPacketLength-52; right++) {
                     char subArray[2400];
@@ -167,6 +172,7 @@ void *producer(void *arg) {
                         left++;
                     }
                     sprintf(temp.byData, "%s", subArray);
+                    // update global byte count and push to buffer
                     queue_push(&buffer, temp);
                     totalBytes += 64;
                     left = right - 62;
@@ -179,7 +185,7 @@ void *producer(void *arg) {
         }
         
     }
-    complete = 1;
+    complete = 1; //signifies our file has completed.
     return 0;
 }
 
@@ -440,7 +446,7 @@ int main(int argc, char* argv[])
             pthread_create(&consID[i], &attr, consumer, NULL);
         } 
         
-        pthread_join(prodID, NULL);
+        pthread_join(prodID, NULL); //waits for producer thread to finish.
 
         while (count > 0) {
             pthread_cond_signal(&fill);
