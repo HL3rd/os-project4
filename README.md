@@ -19,4 +19,8 @@ Overall, our process for level 1 was to loop through each file, and for each pac
 
 ## Level 2
 
-Overall, our process was to loop through each file, and for each packet in the file we would hash bytes 52-115, 53-116, 54-117, etc. until we reached the end of the file. Each of these packet windows would be hashed, and we would check our cache for duplicate data. Only if the packet window was at least 32 bytes away from the last point of cache insertion would we insert the new packet window into our cache. We also ran a check for every cache insertion to make sure our data structure never exceeded 64 MB, and if it did, we ran our eviction strategy described above. 
+Overall, our process was to loop through each file, and for each packet in the file we would hash bytes 52-115, 53-116, 54-117, etc. until we reached the end of the file. Each of these packet windows would be hashed, and we would check our cache for duplicate data. Only if the packet window was at least 32 bytes away from the last point of cache insertion would we insert the new packet window into our cache. We also ran a check for every cache insertion to make sure our data structure never exceeded 64 MB, and if it did, we ran our eviction strategy described above.
+
+## Notes
+
+Our process for level 2, more specifically, was that we took each 64-byte window of a packet and checked if that window was in our cache (we still only inserted to the cache if it was at least 32 bytes further along then our last insertion). If it was, then we incremented duplicate bytes by 64. This is why our hit count is so high, because each individual window that matched we marked as a hit. Thus, our redundancy percentage is the total number of duplicate bytes calculated in this way divided by our total number of bytes that were sent through to the cache (so each window sent through contributed 64 bytes to this total).
